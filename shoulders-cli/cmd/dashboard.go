@@ -25,6 +25,12 @@ var dashboardCmd = &cobra.Command{
 		}
 		defer close(stopCh)
 
+		creds, err := kube.GetGrafanaCredentials(ctx, kubeconfig, "observability", "kube-prometheus-stack-grafana")
+		if err != nil {
+			return err
+		}
+		cmd.Printf("Grafana credentials:\n  user: %s\n  password: %s\n", creds.Username, creds.Password)
+
 		go func() {
 			time.Sleep(2 * time.Second)
 			_ = openBrowser("http://localhost:3000")

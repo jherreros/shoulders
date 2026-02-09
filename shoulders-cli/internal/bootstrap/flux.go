@@ -46,7 +46,9 @@ func downloadFluxManifest(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("failed to download flux install manifest: %s", resp.Status)
 	}

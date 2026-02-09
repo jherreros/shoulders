@@ -292,4 +292,6 @@ func init() {
 
 	registerNamespaceFlag(infraAddDbCmd)
 	registerNamespaceFlag(infraAddStreamCmd)
+	registerNamespaceFlag(infraListCmd)
+	registerNamespaceFlag(infraDeleteCmd)
 }

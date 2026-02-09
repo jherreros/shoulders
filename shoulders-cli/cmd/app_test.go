@@ -8,12 +8,12 @@ func TestParseImageTag(t *testing.T) {
 		t.Fatalf("expected nginx:1.26, got %s:%s", image, tag)
 	}
 
-	image, tag = parseImageTag("nginx", "")
+	_, tag = parseImageTag("nginx", "")
 	if tag != "latest" {
 		t.Fatalf("expected latest, got %s", tag)
 	}
 
-	image, tag = parseImageTag("nginx", "custom")
+	_, tag = parseImageTag("nginx", "custom")
 	if tag != "custom" {
 		t.Fatalf("expected custom, got %s", tag)
 	}

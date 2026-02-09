@@ -41,6 +41,10 @@ var logsCmd = &cobra.Command{
 	},
 }
 
+func init() {
+	registerNamespaceFlag(logsCmd)
+}
+
 func queryLoki(ctx context.Context, appName string) error {
 	stopCh, _, err := kube.PortForwardService(ctx, kubeconfig, "observability", "loki", 3100, 3100)
 	if err != nil {
@@ -54,7 +58,9 @@ func queryLoki(ctx context.Context, appName string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("loki query failed: %s", resp.Status)
 	}
@@ -85,7 +91,9 @@ func streamSinglePodLog(ctx context.Context, clientset *kubernetes.Clientset, na
 	if err != nil {
 		return err
 	}
-	defer stream.Close()
+	defer func() {
+		_ = stream.Close()
+	}()
 	_, err = io.Copy(os.Stdout, stream)
 	return err
 }

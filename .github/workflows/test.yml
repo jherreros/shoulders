@@ -1,4 +1,4 @@
-name: lint
+name: test
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  golangci-lint:
+  cli-test:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -24,9 +24,8 @@ jobs:
         with:
           go-version-file: shoulders-cli/go.mod
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
-          working-directory: shoulders-cli
-          args: --timeout=5m
+      - name: lint
+        run: golangci-lint run --timeout 5m
+
+      - name: Test
+        run: go test -v ./...

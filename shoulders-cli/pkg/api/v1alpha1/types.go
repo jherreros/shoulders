@@ -97,7 +97,7 @@ type WorkspaceList struct {
 func (in *WebApplication) DeepCopyObject() runtime.Object {
 	out := new(WebApplication)
 	*out = *in
-	out.ObjectMeta = *in.ObjectMeta.DeepCopy()
+	out.ObjectMeta = *in.DeepCopy()
 	return out
 }
 
@@ -110,7 +110,7 @@ func (in *WebApplicationList) DeepCopyObject() runtime.Object {
 func (in *StateStore) DeepCopyObject() runtime.Object {
 	out := new(StateStore)
 	*out = *in
-	out.ObjectMeta = *in.ObjectMeta.DeepCopy()
+	out.ObjectMeta = *in.DeepCopy()
 	return out
 }
 
@@ -123,7 +123,7 @@ func (in *StateStoreList) DeepCopyObject() runtime.Object {
 func (in *EventStream) DeepCopyObject() runtime.Object {
 	out := new(EventStream)
 	*out = *in
-	out.ObjectMeta = *in.ObjectMeta.DeepCopy()
+	out.ObjectMeta = *in.DeepCopy()
 	return out
 }
 
@@ -136,7 +136,7 @@ func (in *EventStreamList) DeepCopyObject() runtime.Object {
 func (in *Workspace) DeepCopyObject() runtime.Object {
 	out := new(Workspace)
 	*out = *in
-	out.ObjectMeta = *in.ObjectMeta.DeepCopy()
+	out.ObjectMeta = *in.DeepCopy()
 	return out
 }
 

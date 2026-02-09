@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
@@ -32,7 +34,11 @@ func PortForwardService(ctx context.Context, kubeconfigPath, namespace, serviceN
 	if err != nil {
 		return nil, nil, err
 	}
-	podName, err := findServicePod(ctx, clientset, namespace, service.Spec.Selector)
+	pod, err := findServicePod(ctx, clientset, namespace, service.Spec.Selector)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolvedPort, err := resolveServiceTargetPort(service, pod, remotePort)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -40,7 +46,7 @@ func PortForwardService(ctx context.Context, kubeconfigPath, namespace, serviceN
 	req := clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Namespace(namespace).
-		Name(podName).
+		Name(pod.Name).
 		SubResource("portforward")
 
 	transport, upgrader, err := spdy.RoundTripperFor(config)
@@ -50,7 +56,7 @@ func PortForwardService(ctx context.Context, kubeconfigPath, namespace, serviceN
 
 	stopCh := make(chan struct{}, 1)
 	readyCh := make(chan struct{})
-	ports := []string{fmt.Sprintf("%d:%d", localPort, remotePort)}
+	ports := []string{fmt.Sprintf("%d:%d", localPort, resolvedPort)}
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, req.URL())
 
 	forwarder, err := portforward.NewOnAddresses(dialer, []string{"127.0.0.1"}, ports, stopCh, readyCh, os.Stdout, os.Stderr)
@@ -74,32 +80,65 @@ func PortForwardService(ctx context.Context, kubeconfigPath, namespace, serviceN
 	}
 }
 
-func findServicePod(ctx context.Context, clientset *kubernetes.Clientset, namespace string, selector map[string]string) (string, error) {
+func findServicePod(ctx context.Context, clientset *kubernetes.Clientset, namespace string, selector map[string]string) (*corev1.Pod, error) {
 	if len(selector) == 0 {
-		return "", errors.New("service has no selector")
+		return nil, errors.New("service has no selector")
 	}
 	requirements := []labels.Requirement{}
 	for key, value := range selector {
 		req, err := labels.NewRequirement(key, selection.Equals, []string{value})
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		requirements = append(requirements, *req)
 	}
 	selectorObj := labels.NewSelector().Add(requirements...)
 	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, listOptions(selectorObj.String()))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, pod := range pods.Items {
 		if pod.Status.Phase == "Running" {
-			return pod.Name, nil
+			return pod.DeepCopy(), nil
 		}
 	}
 	if len(pods.Items) == 0 {
-		return "", fmt.Errorf("no pods found for service selector %s", selectorString(selector))
+		return nil, fmt.Errorf("no pods found for service selector %s", selectorString(selector))
 	}
-	return pods.Items[0].Name, nil
+	return pods.Items[0].DeepCopy(), nil
+}
+
+func resolveServiceTargetPort(service *corev1.Service, pod *corev1.Pod, servicePort int) (int, error) {
+	for _, port := range service.Spec.Ports {
+		if int(port.Port) != servicePort {
+			continue
+		}
+		if port.TargetPort.Type == intstr.Int {
+			if port.TargetPort.IntVal > 0 {
+				return int(port.TargetPort.IntVal), nil
+			}
+			return servicePort, nil
+		}
+		if port.TargetPort.Type == intstr.String {
+			if port.TargetPort.StrVal == "" {
+				return servicePort, nil
+			}
+			return resolveNamedPort(pod, port.TargetPort.StrVal, service, servicePort)
+		}
+		return servicePort, nil
+	}
+	return servicePort, nil
+}
+
+func resolveNamedPort(pod *corev1.Pod, portName string, service *corev1.Service, servicePort int) (int, error) {
+	for _, container := range pod.Spec.Containers {
+		for _, containerPort := range container.Ports {
+			if containerPort.Name == portName {
+				return int(containerPort.ContainerPort), nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("service %s/%s targetPort %q not found in pod %s (service port %d)", service.Namespace, service.Name, portName, pod.Name, servicePort)
 }
 
 func listOptions(labelSelector string) metav1.ListOptions {

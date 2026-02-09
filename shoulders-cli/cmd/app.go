@@ -55,10 +55,10 @@ var appInitCmd = &cobra.Command{
 			},
 		}
 		if appPort > 0 {
-			if app.ObjectMeta.Annotations == nil {
-				app.ObjectMeta.Annotations = map[string]string{}
+			if app.Annotations == nil {
+				app.Annotations = map[string]string{}
 			}
-			app.ObjectMeta.Annotations["shoulders.io/port"] = fmt.Sprintf("%d", appPort)
+			app.Annotations["shoulders.io/port"] = fmt.Sprintf("%d", appPort)
 		}
 
 		yamlBytes, err := yaml.Marshal(app)
@@ -210,8 +210,12 @@ func init() {
 	appInitCmd.Flags().IntVar(&appPort, "port", 80, "Service port (stored as annotation)")
 	appInitCmd.Flags().Int32Var(&appReplicas, "replicas", 1, "Number of replicas")
 	appInitCmd.Flags().BoolVar(&appDryRun, "dry-run", false, "Print YAML instead of applying")
-	appInitCmd.MarkFlagRequired("image")
+	if err := appInitCmd.MarkFlagRequired("image"); err != nil {
+		panic(err)
+	}
 
 	registerNamespaceFlag(appInitCmd)
 	registerNamespaceFlag(appListCmd)
+	registerNamespaceFlag(appDeleteCmd)
+	registerNamespaceFlag(appDescribeCmd)
 }
