@@ -89,6 +89,21 @@ This will:
 shoulders status
 ```
 
+## Developer Portal (UI)
+
+The repository includes a lightweight web portal under `shoulders-ui/`.
+It provides a service catalog, deploy wizard with YAML generation, observability embed panel, docs links, and team management views.
+
+The portal ships with a small local server that connects to the Kubernetes API using your local kubeconfig.
+
+```bash
+cd shoulders-ui
+npm install
+npm run dev
+```
+
+Then open `http://localhost:8787` in your browser. Set `KUBECONFIG` if you want to point at a non-default kubeconfig path.
+
 ## Using Shoulders
 
 ### Creating a Workspace
