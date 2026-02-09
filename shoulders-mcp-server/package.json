@@ -1,0 +1,44 @@
+{
+  "name": "shoulders-mcp-server",
+  "version": "0.2.0",
+  "description": "MCP server for the Shoulders internal developer platform.",
+  "main": "dist/server.js",
+  "bin": {
+    "shoulders-mcp-server": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "start": "node dist/server.js",
+    "dev": "node --loader ts-node/esm src/server.ts",
+    "test": "node --test --loader ts-node/esm tests/*.test.ts",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "shoulders",
+    "kubernetes",
+    "developer-platform"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^1.0.3",
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}
