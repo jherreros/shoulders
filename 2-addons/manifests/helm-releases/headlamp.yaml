@@ -21,7 +21,7 @@ spec:
       configContent: |
         plugins:
           - name: shoulders-portal
-            source: https://artifacthub.io/packages/headlamp/shoulders/shoulders-portal
+            source: https://artifacthub.io/packages/headlamp/jherreros/shoulders-portal-plugin
             version: 0.1.0
         installOptions:
           parallel: true
