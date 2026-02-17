@@ -7,4 +7,5 @@ resources:
   - strimzi.yaml
   - cnpg.yaml
   - crossplane.yaml
+  - headlamp.yaml
   - observability.yaml

@@ -50,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(infraCmd)
 	rootCmd.AddCommand(clusterCmd)
 	rootCmd.AddCommand(dashboardCmd)
+	rootCmd.AddCommand(headlampCmd)
 	rootCmd.AddCommand(logsCmd)
 }
 

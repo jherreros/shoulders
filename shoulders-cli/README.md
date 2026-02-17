@@ -57,6 +57,7 @@ go build -o shoulders
 ```bash
 ./shoulders status
 ./shoulders dashboard
+./shoulders headlamp
 ```
 
 ## Configuration

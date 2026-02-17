@@ -1,0 +1,30 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: headlamp
+      sourceRef:
+        kind: HelmRepository
+        name: headlamp
+        namespace: flux-system
+      version: "0.40.0"
+  values:
+    config:
+      watchPlugins: true
+    pluginsManager:
+      enabled: true
+      configContent: |
+        plugins:
+          - name: shoulders-portal
+            source: https://artifacthub.io/packages/headlamp/shoulders/shoulders-portal
+            version: 0.1.0
+        installOptions:
+          parallel: true
+          maxConcurrent: 2
+      baseImage: node:lts-alpine
+      version: latest

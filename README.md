@@ -89,6 +89,52 @@ This will:
 shoulders status
 ```
 
+### Common Commands
+
+```bash
+# Deploy platform components
+shoulders up
+
+# Check platform health
+shoulders status
+
+# Open Grafana dashboard
+shoulders dashboard
+
+# Open Headlamp (with Shoulders plugin)
+shoulders headlamp
+```
+
+## Developer Portal (Headlamp Plugin)
+
+The developer portal is delivered as the **Shoulders Headlamp plugin** (`shoulders-portal-plugin/`).
+
+When Shoulders is installed, Headlamp loads the plugin through `pluginsManager` and exposes it in the sidebar as **Shoulders**.
+
+You can open Headlamp directly with the Shoulders CLI:
+
+```bash
+shoulders headlamp
+```
+
+This command prints a login token, starts a local port-forward, and opens Headlamp at `http://localhost:4466`.
+
+### Local plugin development
+
+```bash
+cd shoulders-portal-plugin
+npm install
+npm run start
+```
+
+### In-cluster plugin installation
+
+Plugin installation is configured in:
+
+- `2-addons/manifests/helm-releases/headlamp.yaml`
+
+The plugin release workflow publishes plugin artifacts and Artifact Hub metadata, and the Headlamp `pluginsManager` configuration consumes the versioned package.
+
 ## Using Shoulders
 
 ### Creating a Workspace
