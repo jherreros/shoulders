@@ -210,6 +210,27 @@ spec:
 
 This provisions a dedicated Kafka cluster and multiple topics with appropriate partitioning and retention policies.
 
+## MCP Server
+
+Shoulders includes an MCP server in `shoulders-mcp-server/` for AI assistants and other MCP-compatible clients. It wraps the `shoulders` CLI for workspace and application lifecycle operations, and integrates with Loki/Tempo for logs and traces.
+
+Example MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "shoulders": {
+      "command": "npx",
+      "args": ["github:jherreros/shoulders-mcp-server"]
+    }
+  }
+}
+```
+
+This uses the standalone `shoulders-mcp-server` repo (synced from this monorepo).
+
+See `/Users/juan/source/shoulders/shoulders-mcp-server/README.md` for setup and tool details.
+
 ## Project Structure
 
 ```
