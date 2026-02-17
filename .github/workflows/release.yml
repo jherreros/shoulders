@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git diff --quiet; then
+          if [[ -z "$(git status --porcelain artifacthub/headlamp-plugins)" ]]; then
             echo "No metadata changes to commit"
             exit 0
           fi
