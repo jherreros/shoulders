@@ -158,6 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
+          export VERSION
 
           ruby - <<'RUBY'
           file = '2-addons/manifests/helm-releases/headlamp.yaml'
