@@ -12,4 +12,4 @@ spec:
         kind: HelmRepository
         name: kyverno
         namespace: flux-system
-      version: "3.6.2"
+      version: "3.7.0"

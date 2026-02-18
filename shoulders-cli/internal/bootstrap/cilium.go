@@ -11,7 +11,7 @@ import (
 const (
 	ciliumRepoURL   = "https://helm.cilium.io/"
 	ciliumChartName = "cilium"
-	ciliumVersion   = "1.18.6"
+	ciliumVersion   = "1.19.1"
 )
 
 func EnsureCilium(kubeconfigPath string) error {

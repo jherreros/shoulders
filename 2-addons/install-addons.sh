@@ -2,7 +2,7 @@
 
 set -o errexit
 
-CILIUM_VERSION="1.18.6"
+CILIUM_VERSION="1.19.1"
 
 # Cilium
 helm repo add cilium https://helm.cilium.io/
