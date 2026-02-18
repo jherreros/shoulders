@@ -1,38 +1,47 @@
-# shoulders-portal-plugin
+# Shoulders Portal
 
-Shoulders portal plugin for Headlamp. It surfaces the Crossplane-backed resource catalog
-for Workspaces, WebApplications, StateStores, and EventStreams.
+A [Headlamp](https://headlamp.dev) plugin that exposes the **Shoulders** Internal Developer
+Platform catalog directly in your Kubernetes dashboard. Teams get a single pane of glass
+to browse and inspect every platform resource created through the Crossplane-backed
+[Shoulders](https://github.com/jherreros/shoulders) platform.
 
-## Local development
+## Features
 
-1. `npm install`
-2. `npm run start`
-3. Open Headlamp and navigate to the "Shoulders" entry under the Cluster menu.
+The plugin adds a **Shoulders** entry to the Headlamp sidebar (under the Cluster section)
+and surfaces four resource types:
 
-## Packaging
+| Resource | Description |
+|---|---|
+| **Workspaces** | Cluster-scoped workspace foundations and guardrails |
+| **Web Applications** | Deployments with ingress, routing, and scaling |
+| **State Stores** | PostgreSQL and Redis services for teams |
+| **Event Streams** | Kafka-backed topic bundles for streaming workloads |
 
-1. `npm run build`
-2. `npm run package`
+## Prerequisites
 
-The packaged plugin can be published to Artifact Hub and referenced in the Headlamp Helm
-chart `pluginsManager` configuration.
+- [Headlamp](https://headlamp.dev) deployed in-cluster (or desktop)
+- The [Shoulders](https://github.com/jherreros/shoulders) platform installed on the cluster
+  (provides the `shoulders.io/v1alpha1` CRDs via Crossplane)
 
-## Release publishing
+## Installation
 
-The repository release workflow now also packages this plugin and uploads these assets
-to the GitHub Release that matches the pushed tag (for example `v0.1.0`):
+Install via the Headlamp `pluginsManager` by adding the following to your Headlamp Helm
+release values:
 
-- `shoulders-portal-plugin-<version>.tar.gz`
-- `shoulders-portal-plugin-checksums.txt`
+```yaml
+plugins:
+  - name: shoulders-portal
+    source: https://artifacthub.io/packages/headlamp/shoulders-portal-plugin/shoulders-portal
+    version: 0.0.5
+```
 
-The workflow aligns the plugin `package.json` version to the release tag automatically
-before packaging.
+## Usage
 
-## Installing in-cluster
+Once installed, navigate to the **Shoulders** entry in the Headlamp sidebar. Each tab
+lists the corresponding platform resources from the cluster, with status and spec details
+rendered inline.
 
-For Headlamp in-cluster `pluginsManager`, keep using an Artifact Hub package URL as
-`source` in the plugin config.
+## Contributing
 
-GitHub Releases are now used as your build artifact distribution channel. If you want
-fully automated in-cluster updates from your own plugin publication flow, publish each
-plugin version to Artifact Hub and then update the version in the Headlamp Helm values.
+Source code and contribution instructions are available at
+[github.com/jherreros/shoulders](https://github.com/jherreros/shoulders).

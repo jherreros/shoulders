@@ -38,7 +38,7 @@ var headlampCmd = &cobra.Command{
 
 		go func() {
 			time.Sleep(2 * time.Second)
-			_ = openBrowser("http://localhost:4466")
+			_ = openBrowser("http://localhost:4466/shoulders")
 		}()
 
 		<-ctx.Done()
