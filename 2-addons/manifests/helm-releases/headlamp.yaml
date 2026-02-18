@@ -22,7 +22,7 @@ spec:
         plugins:
           - name: shoulders-portal
             source: https://artifacthub.io/packages/headlamp/shoulders-portal-plugin/shoulders-portal
-            version: 0.0.5
+            version: 0.0.6
         installOptions:
           parallel: true
           maxConcurrent: 2
