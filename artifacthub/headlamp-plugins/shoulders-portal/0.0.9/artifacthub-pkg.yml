@@ -1,0 +1,19 @@
+version: 0.0.9
+name: shoulders-portal
+displayName: Shoulders Portal
+createdAt: 2026-03-27T20:13:53Z
+description: Shoulders portal plugin for Headlamp.
+homeURL: https://github.com/jherreros/shoulders
+keywords:
+  - headlamp
+  - kubernetes
+  - crossplane
+links:
+  - name: Source
+    url: https://github.com/jherreros/shoulders
+  - name: Release v0.0.9
+    url: https://github.com/jherreros/shoulders/releases/tag/v0.0.9
+annotations:
+  headlamp/plugin/archive-url: "https://github.com/jherreros/shoulders/releases/download/v0.0.9/shoulders-portal-plugin-0.0.9.tar.gz"
+  headlamp/plugin/archive-checksum: "sha256:a7deda74f8723a5ef031b9de074a8ba32ba67043547bc75a1a854ceddd46286a"
+  headlamp/plugin/distro-compat: "in-cluster,web"
