@@ -49,6 +49,7 @@ spec:
   interval: 10m
   path: ./2-addons/manifests/helm-releases
   prune: true
+  wait: true
   sourceRef:
     kind: GitRepository
     name: flux-system
@@ -80,6 +81,36 @@ metadata:
 spec:
   interval: 10m
   path: ./2-addons/manifests/gateway
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: helm-releases
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: policy-reporter
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./2-addons/manifests/policy-reporter
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: helm-releases
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: trivy-dashboard
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./2-addons/manifests/trivy-dashboard
   prune: true
   sourceRef:
     kind: GitRepository

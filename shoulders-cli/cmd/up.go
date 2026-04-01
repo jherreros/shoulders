@@ -100,8 +100,9 @@ var upCmd = &cobra.Command{
 			{"dex", "dex"},
 			{"headlamp", "headlamp"},
 			{"observability", "kube-prometheus-stack-grafana"},
+			{"policy-reporter", "policy-reporter-ui"},
 		}
-		tracker.Start(verboseDetail("waiting for %d deployments: dex, headlamp, grafana", len(deployments)))
+		tracker.Start(verboseDetail("waiting for %d deployments: dex, headlamp, grafana, policy-reporter-ui", len(deployments)))
 		for _, d := range deployments {
 			tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s", d.ns, d.name))
 			if err := bootstrap.WaitForDeploymentReady(kubeconfig, d.ns, d.name, 10*time.Minute); err != nil {
@@ -117,6 +118,7 @@ var upCmd = &cobra.Command{
 			{"dex", "dex"},
 			{"headlamp", "headlamp"},
 			{"observability", "grafana"},
+			{"policy-reporter", "policy-reporter"},
 		}
 		for _, r := range routes {
 			tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s HTTPRoute", r.ns, r.name))

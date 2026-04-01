@@ -4,6 +4,9 @@ resources:
   - gateway.yaml
   - dex-tls-secret.yaml
   - dex-httproute.yaml
+  - alertmanager-httproute.yaml
   - grafana-httproute.yaml
   - headlamp-httproute.yaml
+  - hubble-httproute.yaml
+  - prometheus-httproute.yaml
   - reporter-httproute.yaml

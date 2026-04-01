@@ -31,6 +31,10 @@ spec:
       annotations:
         grafana_folder: Cilium
     hubble:
+      relay:
+        enabled: true
+      ui:
+        enabled: true
       metrics:
         enableOpenMetrics: true
         enabled:

@@ -83,7 +83,7 @@ func EnsureCilium(kubeconfigPath string) error {
 		"prometheus": map[string]interface{}{
 			"enabled": true,
 			"serviceMonitor": map[string]interface{}{
-				"enabled": true,
+				"enabled": false,
 			},
 		},
 		"dashboards": map[string]interface{}{

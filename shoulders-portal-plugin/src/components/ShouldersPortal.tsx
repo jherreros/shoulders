@@ -15,6 +15,7 @@ import {
 	FormControl,
 	Grid,
 	InputLabel,
+	Link,
 	ListItemText,
 	MenuItem,
 	Select,
@@ -24,6 +25,7 @@ import {
 	TextField,
 	Typography,
 } from '@mui/material';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchResourceList } from '../api';
 import { formatTimestamp } from '../portalUtils';
@@ -61,6 +63,15 @@ function getStatusColor(value: boolean | null): 'success' | 'error' | 'default' 
 	if (value === false) return 'error';
 	return 'default';
 }
+
+const platformUIs = [
+	{ label: 'Grafana', description: 'Dashboards, metrics, logs, and traces.', url: 'http://grafana.localhost' },
+	{ label: 'Hubble', description: 'Network flow visibility powered by Cilium.', url: 'http://hubble.localhost' },
+	{ label: 'Prometheus', description: 'Metrics querying and alerting rules.', url: 'http://prometheus.localhost' },
+	{ label: 'Alertmanager', description: 'Alert routing and silencing.', url: 'http://alertmanager.localhost' },
+	{ label: 'Policy Reporter', description: 'Kyverno and Trivy policy results.', url: 'http://reporter.localhost' },
+	{ label: 'Dex', description: 'OpenID Connect identity provider.', url: 'https://dex.127.0.0.1.sslip.io' },
+];
 
 function matchesWorkspaceFilter(item: ResourceItem, resourceId: string, selectedWorkspaces: string[]) {
 	if (selectedWorkspaces.length === 0) return true;
@@ -232,6 +243,37 @@ export function ShouldersPortal() {
 											</Typography>
 											<Typography variant="body2" color="text.secondary">
 												{config.description}
+											</Typography>
+										</Stack>
+									</CardContent>
+								</Card>
+							</Grid>
+						))}
+					</Grid>
+				</SectionBox>
+
+				<SectionBox title="Platform UIs">
+					<Grid container spacing={2}>
+						{platformUIs.map((ui) => (
+							<Grid item xs={12} sm={6} md={4} lg={2} key={ui.label}>
+								<Card variant="outlined">
+									<CardContent>
+										<Stack spacing={1}>
+											<Link
+												href={ui.url}
+												target="_blank"
+												rel="noopener noreferrer"
+												underline="hover"
+												variant="subtitle2"
+												display="flex"
+												alignItems="center"
+												gap={0.5}
+											>
+												{ui.label}
+												<OpenInNewIcon fontSize="inherit" />
+											</Link>
+											<Typography variant="body2" color="text.secondary">
+												{ui.description}
 											</Typography>
 										</Stack>
 									</CardContent>
