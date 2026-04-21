@@ -43,7 +43,7 @@ brews:
       owner: jherreros
       name: homebrew-tap
       token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
-    folder: Formula
+    directory: Formula
     homepage: https://github.com/jherreros/shoulders
     description: CLI for the Shoulders Internal Developer Platform
     license: MIT
