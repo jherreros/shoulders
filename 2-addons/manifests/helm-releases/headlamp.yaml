@@ -65,5 +65,5 @@ spec:
         installOptions:
           parallel: true
           maxConcurrent: 2
-      baseImage: public.ecr.aws/docker/library/node:20-alpine
+      baseImage: public.ecr.aws/docker/library/node:24-alpine
       version: latest
