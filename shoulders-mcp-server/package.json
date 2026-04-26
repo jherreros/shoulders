@@ -29,16 +29,16 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=18.20.8"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^1.0.3",
+    "@kubernetes/client-node": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "yaml": "^2.8.1"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "tsx": "^4.20.6",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }
 }
