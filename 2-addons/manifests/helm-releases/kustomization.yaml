@@ -7,6 +7,10 @@ resources:
   - kyverno.yaml
   - kyverno-policies.yaml
   - strimzi.yaml
+  - garage-admin-secret.yaml
+  - garage.yaml
+  - garage-admin-service.yaml
+  - garage-layout-job.yaml
   - cnpg.yaml
   - crossplane.yaml
   - headlamp.yaml

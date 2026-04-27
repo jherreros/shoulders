@@ -27,11 +27,19 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Core resources for compositions
   - apiGroups: [""]
-    resources: ["secrets", "services"]
+    resources: ["secrets", "services", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # RBAC resources for composed provisioner jobs
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Apps resources
   - apiGroups: ["apps"]
     resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Batch resources
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Gateway API
   - apiGroups: ["gateway.networking.k8s.io"]

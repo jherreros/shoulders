@@ -1,6 +1,6 @@
 ---
 name: shoulders
-description: "Deploy and manage applications on the Shoulders Internal Developer Platform. USE FOR: deploying web applications, creating workspaces, provisioning PostgreSQL databases, Redis caches, Kafka event streams, checking platform status, fetching application logs, troubleshooting deployments on Kubernetes. TOOLS: shoulders CLI (primary), shoulders MCP server (optional)."
+description: "Deploy and manage applications on the Shoulders Internal Developer Platform. USE FOR: deploying web applications, creating workspaces, provisioning PostgreSQL databases, Redis caches, Garage S3 buckets, Kafka event streams, checking platform status, fetching application logs, troubleshooting deployments on Kubernetes. TOOLS: shoulders CLI (primary), shoulders MCP server (optional)."
 ---
 
 # Shoulders Platform Skill
@@ -24,7 +24,7 @@ The standard deployment workflow follows this order:
 1. Create a workspace    → shoulders workspace create <name>
 2. Set active workspace  → shoulders workspace use <name>
 3. Deploy application    → shoulders app init <name> --image <image>
-4. Add infrastructure    → shoulders infra add-db <name> / add-stream <name>
+4. Add infrastructure    → shoulders infra add-db <name> / add-bucket <name> / add-stream <name>
 5. Verify                → shoulders status / shoulders logs <app-name>
 ```
 
@@ -45,6 +45,7 @@ shoulders workspace create demo
 shoulders workspace use demo
 shoulders app init demo-api --image nginx:latest --host demo.local
 shoulders infra add-db demo-db --type postgres --tier dev
+shoulders infra add-bucket demo-assets --bucket demo-assets
 shoulders logs demo-api
 ```
 
@@ -59,6 +60,7 @@ For more deployment patterns (multi-service, full-stack with Kafka, etc.), see [
 | Deploy app | `shoulders app init <name> --image <img> [--host h] [--port p] [--replicas n]` |
 | Add PostgreSQL | `shoulders infra add-db <name> --type postgres [--tier dev\|prod]` |
 | Add Redis | `shoulders infra add-db <name> --type redis` |
+| Add S3 bucket | `shoulders infra add-bucket <name> [--bucket bucket-name] [--secret secret-name]` |
 | Add Kafka topics | `shoulders infra add-stream <name> --topics "t1,t2" [--partitions n] [--config k=v]` |
 | List resources | `shoulders app list` / `shoulders infra list` / `shoulders workspace list` |
 | View logs | `shoulders logs <app-name>` |

@@ -35,6 +35,11 @@ export type CreateFormState = {
 		postgresDatabases: string;
 		redisEnabled: boolean;
 		redisReplicas: string;
+		objectStorageEnabled: boolean;
+		objectBuckets: string;
+		objectRead: boolean;
+		objectWrite: boolean;
+		objectOwner: boolean;
 	};
 	eventStream: {
 		topicsText: string;

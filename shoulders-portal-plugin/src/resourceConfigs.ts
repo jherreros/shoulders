@@ -24,7 +24,7 @@ export const resourceConfigs: ResourceConfig[] = [
 	{
 		id: 'statestores',
 		label: 'State Stores',
-		description: 'PostgreSQL and Redis services for teams.',
+		description: 'PostgreSQL, Redis, and Garage object buckets for teams.',
 		path: '/apis/shoulders.io/v1alpha1/statestores',
 		plural: 'statestores',
 		apiVersion: 'shoulders.io/v1alpha1',

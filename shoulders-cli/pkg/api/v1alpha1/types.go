@@ -36,8 +36,9 @@ type StateStore struct {
 }
 
 type StateStoreSpec struct {
-	Postgresql *PostgresSpec `json:"postgresql,omitempty"`
-	Redis      *RedisSpec    `json:"redis,omitempty"`
+	Postgresql    *PostgresSpec      `json:"postgresql,omitempty"`
+	Redis         *RedisSpec         `json:"redis,omitempty"`
+	ObjectStorage *ObjectStorageSpec `json:"objectStorage,omitempty"`
 }
 
 type PostgresSpec struct {
@@ -49,6 +50,21 @@ type PostgresSpec struct {
 type RedisSpec struct {
 	Enabled  *bool  `json:"enabled,omitempty"`
 	Replicas *int32 `json:"replicas,omitempty"`
+}
+
+type ObjectStorageSpec struct {
+	Enabled  *bool        `json:"enabled,omitempty"`
+	Endpoint string       `json:"endpoint,omitempty"`
+	Region   string       `json:"region,omitempty"`
+	Buckets  []BucketSpec `json:"buckets,omitempty"`
+}
+
+type BucketSpec struct {
+	Name       string `json:"name"`
+	SecretName string `json:"secretName,omitempty"`
+	Read       *bool  `json:"read,omitempty"`
+	Write      *bool  `json:"write,omitempty"`
+	Owner      *bool  `json:"owner,omitempty"`
 }
 
 type StateStoreList struct {

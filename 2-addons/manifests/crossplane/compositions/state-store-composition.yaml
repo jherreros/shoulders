@@ -101,6 +101,285 @@ spec:
                   targetPort: 6379
             {{ end }}
 
+            {{ with .observed.composite.resource.spec.objectStorage }}
+            {{ if .enabled }}
+            {{- $stateStoreName := $.observed.composite.resource.metadata.name }}
+            {{- $targetNamespace := $.observed.composite.resource.metadata.namespace }}
+            {{- $objectStorage := . }}
+            {{- $provisionerName := printf "%s-bucket-provisioner" $stateStoreName | trunc 63 | trimSuffix "-" }}
+            {{- $adminSecretName := printf "%s-garage-admin-token" $stateStoreName | trunc 63 | trimSuffix "-" }}
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "object-storage-admin-token"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $adminSecretName | quote }}
+              namespace: {{ $targetNamespace | quote }}
+            type: Opaque
+            stringData:
+              token: shoulders-garage-admin-token
+            ---
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "object-storage-service-account"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $provisionerName | quote }}
+              namespace: {{ $targetNamespace | quote }}
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "object-storage-secret-writer-role"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $provisionerName | quote }}
+              namespace: {{ $targetNamespace | quote }}
+            rules:
+              - apiGroups: [""]
+                resources: ["secrets"]
+                verbs: ["get", "create", "update", "patch"]
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "object-storage-secret-writer-binding"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $provisionerName | quote }}
+              namespace: {{ $targetNamespace | quote }}
+            subjects:
+              - kind: ServiceAccount
+                name: {{ $provisionerName | quote }}
+                namespace: {{ $targetNamespace | quote }}
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: Role
+              name: {{ $provisionerName | quote }}
+            ---
+            apiVersion: cilium.io/v2
+            kind: CiliumNetworkPolicy
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "object-storage-provisioner-egress"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ printf "%s-bucket-provisioner-egress" $stateStoreName | trunc 63 | trimSuffix "-" | quote }}
+              namespace: {{ $targetNamespace | quote }}
+            spec:
+              endpointSelector:
+                matchLabels:
+                  shoulders.io/garage-bucket-provisioner: {{ $stateStoreName | quote }}
+              egress:
+                - toEndpoints:
+                    - matchLabels:
+                        k8s:io.kubernetes.pod.namespace: garage
+                - toEntities:
+                    - kube-apiserver
+                    - host
+                    - remote-node
+            {{- range $index, $bucket := $objectStorage.buckets }}
+            {{- $bucketJobName := printf "%s-%s-bucket" $stateStoreName $bucket.name | trunc 63 | trimSuffix "-" }}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: {{ printf "object-bucket-%d" $index | quote }}
+              name: {{ $bucketJobName | quote }}
+              namespace: {{ $targetNamespace | quote }}
+            spec:
+              backoffLimit: 6
+              template:
+                metadata:
+                  labels:
+                    shoulders.io/garage-bucket-provisioner: {{ $stateStoreName | quote }}
+                spec:
+                  serviceAccountName: {{ $provisionerName | quote }}
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: provision-bucket
+                      image: python:3.13-alpine
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: GARAGE_ADMIN_URL
+                          value: http://garage-admin.garage.svc.cluster.local:3903
+                        - name: GARAGE_ADMIN_TOKEN
+                          valueFrom:
+                            secretKeyRef:
+                              name: {{ $adminSecretName | quote }}
+                              key: token
+                        - name: S3_ENDPOINT
+                          value: {{ $objectStorage.endpoint | default "http://garage.garage.svc.cluster.local:3900" | quote }}
+                        - name: S3_REGION
+                          value: {{ $objectStorage.region | default "garage" | quote }}
+                        - name: BUCKET_NAME
+                          value: {{ $bucket.name | quote }}
+                        - name: SECRET_NAME
+                          value: {{ $bucket.secretName | default (printf "%s-s3" $bucket.name) | quote }}
+                        - name: TARGET_NAMESPACE
+                          value: {{ $targetNamespace | quote }}
+                        - name: STATE_STORE_NAME
+                          value: {{ $stateStoreName | quote }}
+                        - name: BUCKET_READ
+                          value: {{ $bucket.read | quote }}
+                        - name: BUCKET_WRITE
+                          value: {{ $bucket.write | quote }}
+                        - name: BUCKET_OWNER
+                          value: {{ $bucket.owner | quote }}
+                      command:
+                        - python
+                        - -c
+                        - |
+                          import base64
+                          import json
+                          import os
+                          import ssl
+                          import time
+                          import urllib.error
+                          import urllib.parse
+                          import urllib.request
+
+                          admin_url = os.environ["GARAGE_ADMIN_URL"].rstrip("/")
+                          admin_token = os.environ["GARAGE_ADMIN_TOKEN"]
+                          bucket_name = os.environ["BUCKET_NAME"]
+                          secret_name = os.environ["SECRET_NAME"]
+                          target_namespace = os.environ["TARGET_NAMESPACE"]
+                          state_store_name = os.environ["STATE_STORE_NAME"]
+                          s3_endpoint = os.environ["S3_ENDPOINT"]
+                          s3_region = os.environ["S3_REGION"]
+
+                          def env_bool(name):
+                              return os.environ.get(name, "false").lower() == "true"
+
+                          def garage_request(method, path, body=None, expected=(200,)):
+                              data = None
+                              headers = {"Authorization": f"Bearer {admin_token}"}
+                              if body is not None:
+                                  data = json.dumps(body).encode("utf-8")
+                                  headers["Content-Type"] = "application/json"
+                              req = urllib.request.Request(f"{admin_url}{path}", data=data, headers=headers, method=method)
+                              with urllib.request.urlopen(req, timeout=20) as response:
+                                  if response.status not in expected:
+                                      raise RuntimeError(f"unexpected {method} {path} status: {response.status}")
+                                  payload = response.read()
+                                  if not payload:
+                                      return None
+                                  content_type = response.headers.get("Content-Type", "")
+                                  if "application/json" in content_type:
+                                      return json.loads(payload.decode("utf-8"))
+                                  return payload.decode("utf-8")
+
+                          def garage_request_optional(method, path, body=None):
+                              try:
+                                  return garage_request(method, path, body)
+                              except urllib.error.HTTPError as exc:
+                                  if exc.code == 404:
+                                      return None
+                                  raise
+
+                          for attempt in range(60):
+                              try:
+                                  garage_request("GET", "/health")
+                                  break
+                              except Exception as exc:
+                                  print(f"waiting for Garage health ({attempt + 1}/60): {exc}", flush=True)
+                                  time.sleep(5)
+                          else:
+                              raise SystemExit("Garage did not become healthy")
+
+                          bucket_path = "/v1/bucket?globalAlias=" + urllib.parse.quote(bucket_name)
+                          bucket = garage_request_optional("GET", bucket_path)
+                          if bucket is None:
+                              bucket = garage_request("POST", "/v1/bucket", {"globalAlias": bucket_name})
+                          bucket_id = bucket["id"]
+
+                          key_name = f"{target_namespace}-{secret_name}"
+                          key = None
+                          for candidate in garage_request("GET", "/v1/key?list"):
+                              if candidate.get("name") == key_name:
+                                  key_id = urllib.parse.quote(candidate["id"])
+                                  key = garage_request("GET", f"/v1/key?id={key_id}&showSecretKey=true")
+                                  break
+                          if key is None:
+                              key = garage_request("POST", "/v1/key?list", {"name": key_name})
+                          access_key_id = key["accessKeyId"]
+                          secret_access_key = key["secretAccessKey"]
+
+                          garage_request("POST", "/v1/bucket/allow", {
+                              "bucketId": bucket_id,
+                              "accessKeyId": access_key_id,
+                              "permissions": {
+                                  "read": env_bool("BUCKET_READ"),
+                                  "write": env_bool("BUCKET_WRITE"),
+                                  "owner": env_bool("BUCKET_OWNER")
+                              }
+                          })
+
+                          service_host = os.environ["KUBERNETES_SERVICE_HOST"]
+                          service_port = os.environ["KUBERNETES_SERVICE_PORT"]
+                          kube_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+                          kube_ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+                          with open(kube_token_path, "r", encoding="utf-8") as token_file:
+                              kube_token = token_file.read().strip()
+                          ssl_context = ssl.create_default_context(cafile=kube_ca_path)
+                          kube_base = f"https://{service_host}:{service_port}"
+
+                          def encoded(value):
+                              return base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+                          secret_body = {
+                              "apiVersion": "v1",
+                              "kind": "Secret",
+                              "metadata": {
+                                  "name": secret_name,
+                                  "namespace": target_namespace,
+                                  "labels": {
+                                      "app.kubernetes.io/managed-by": "shoulders",
+                                      "shoulders.io/state-store": state_store_name
+                                  }
+                              },
+                              "type": "Opaque",
+                              "data": {
+                                  "AWS_ACCESS_KEY_ID": encoded(access_key_id),
+                                  "AWS_SECRET_ACCESS_KEY": encoded(secret_access_key),
+                                  "AWS_DEFAULT_REGION": encoded(s3_region),
+                                  "AWS_ENDPOINT_URL": encoded(s3_endpoint),
+                                  "S3_BUCKET": encoded(bucket_name),
+                                  "accessKeyId": encoded(access_key_id),
+                                  "secretAccessKey": encoded(secret_access_key),
+                                  "endpoint": encoded(s3_endpoint),
+                                  "region": encoded(s3_region),
+                                  "bucket": encoded(bucket_name)
+                              }
+                          }
+
+                          def kube_request(method, path, body=None, content_type="application/json"):
+                              data = None
+                              headers = {"Authorization": f"Bearer {kube_token}"}
+                              if body is not None:
+                                  data = json.dumps(body).encode("utf-8")
+                                  headers["Content-Type"] = content_type
+                              req = urllib.request.Request(f"{kube_base}{path}", data=data, headers=headers, method=method)
+                              with urllib.request.urlopen(req, context=ssl_context, timeout=20) as response:
+                                  payload = response.read()
+                                  return json.loads(payload.decode("utf-8")) if payload else None
+
+                          secret_path = f"/api/v1/namespaces/{target_namespace}/secrets/{secret_name}"
+                          try:
+                              kube_request("POST", f"/api/v1/namespaces/{target_namespace}/secrets", secret_body)
+                          except urllib.error.HTTPError as exc:
+                              if exc.code != 409:
+                                  raise
+                              kube_request("PATCH", secret_path, secret_body, "application/merge-patch+json")
+
+                          print(f"Provisioned Garage bucket {bucket_name} and Secret {target_namespace}/{secret_name}", flush=True)
+            {{- end }}
+            {{ end }}
+            {{ end }}
+
     - step: auto-ready
       functionRef:
         name: function-auto-ready

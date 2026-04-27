@@ -16,6 +16,7 @@ If your agent has the Shoulders MCP server configured, you can use it as an alte
 | `get_app_status` | `shoulders app describe` |
 | `delete_app` | `shoulders app delete` |
 | `add_database` | `shoulders infra add-db` |
+| `add_bucket` | `shoulders infra add-bucket` |
 | `add_stream` | `shoulders infra add-stream` |
 | `list_infra` | `shoulders infra list` |
 | `delete_infra` | `shoulders infra delete` |

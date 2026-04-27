@@ -1,0 +1,41 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: garage
+  namespace: garage
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: ./script/helm/garage
+      sourceRef:
+        kind: GitRepository
+        name: garage
+        namespace: flux-system
+  values:
+    garage:
+      dbEngine: sqlite
+      replicationMode: "1"
+      s3:
+        api:
+          region: garage
+          rootDomain: ".s3.garage.localhost"
+        web:
+          rootDomain: ".web.garage.localhost"
+          index: index.html
+    deployment:
+      replicaCount: 1
+    image:
+      repository: dxflrs/garage
+    persistence:
+      enabled: true
+      meta:
+        size: 100Mi
+      data:
+        size: 1Gi
+    environment:
+      - name: GARAGE_ADMIN_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: garage-admin-token
+            key: token

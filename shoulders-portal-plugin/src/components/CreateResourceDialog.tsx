@@ -112,6 +112,8 @@ export function CreateResourceDialog({
 							};
 						}
 						if (config.id === 'statestores') {
+							const objectBuckets = manifest?.spec?.objectStorage?.buckets ?? [];
+							const firstBucket = objectBuckets[0] ?? {};
 							return {
 								...prev,
 								name,
@@ -127,6 +129,16 @@ export function CreateResourceDialog({
 									redisReplicas: String(
 										manifest?.spec?.redis?.replicas ?? prev.stateStore.redisReplicas
 									),
+									objectStorageEnabled:
+										manifest?.spec?.objectStorage?.enabled ??
+										prev.stateStore.objectStorageEnabled,
+									objectBuckets: objectBuckets
+										.map((bucket: { name?: string }) => bucket?.name)
+										.filter(Boolean)
+										.join(', '),
+									objectRead: firstBucket?.read ?? prev.stateStore.objectRead,
+									objectWrite: firstBucket?.write ?? prev.stateStore.objectWrite,
+									objectOwner: firstBucket?.owner ?? prev.stateStore.objectOwner,
 								},
 							};
 						}
@@ -413,6 +425,94 @@ export function CreateResourceDialog({
 											}))
 										}
 										size="small"
+									/>
+									<FormControlLabel
+										control={
+											<Switch
+												checked={createForm.stateStore.objectStorageEnabled}
+												onChange={(event) =>
+													setCreateForm((prev) => ({
+														...prev,
+														stateStore: {
+															...prev.stateStore,
+															objectStorageEnabled: event.target.checked,
+														},
+													}))
+												}
+												color="primary"
+											/>
+										}
+										label="Enable Object Storage"
+									/>
+									<TextField
+										label="Object Buckets"
+										value={createForm.stateStore.objectBuckets}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												stateStore: {
+													...prev.stateStore,
+													objectBuckets: event.target.value,
+												},
+											}))
+										}
+										size="small"
+										placeholder="team-a-assets, team-a-backups"
+										helperText="Comma or newline separated"
+									/>
+									<FormControlLabel
+										control={
+											<Switch
+												checked={createForm.stateStore.objectRead}
+												onChange={(event) =>
+													setCreateForm((prev) => ({
+														...prev,
+														stateStore: {
+															...prev.stateStore,
+															objectRead: event.target.checked,
+														},
+													}))
+												}
+												color="primary"
+											/>
+										}
+										label="Object Read Access"
+									/>
+									<FormControlLabel
+										control={
+											<Switch
+												checked={createForm.stateStore.objectWrite}
+												onChange={(event) =>
+													setCreateForm((prev) => ({
+														...prev,
+														stateStore: {
+															...prev.stateStore,
+															objectWrite: event.target.checked,
+														},
+													}))
+												}
+												color="primary"
+											/>
+										}
+										label="Object Write Access"
+									/>
+									<FormControlLabel
+										control={
+											<Switch
+												checked={createForm.stateStore.objectOwner}
+												onChange={(event) =>
+													setCreateForm((prev) => ({
+														...prev,
+														stateStore: {
+															...prev.stateStore,
+															objectOwner: event.target.checked,
+														},
+													}))
+												}
+												color="primary"
+											/>
+										}
+										label="Object Owner Access"
 									/>
 								</Stack>
 							)}

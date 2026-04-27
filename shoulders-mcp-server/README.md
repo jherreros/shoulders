@@ -51,6 +51,7 @@ node dist/server.js
 
 **Infrastructure**
 - `add_database`: Create a StateStore.
+- `add_bucket`: Create a Garage S3 bucket through a StateStore.
 - `add_stream`: Create an EventStream.
 - `list_infra`: List StateStore/EventStream resources.
 - `delete_infra`: Delete a StateStore/EventStream resource.

@@ -86,6 +86,16 @@ interface AddDatabaseArgs {
   tier?: "dev" | "prod";
 }
 
+interface AddBucketArgs {
+  name: string;
+  namespace: string;
+  bucket?: string;
+  secretName?: string;
+  read?: boolean;
+  write?: boolean;
+  owner?: boolean;
+}
+
 interface AddStreamArgs {
   name: string;
   namespace: string;
@@ -294,6 +304,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "add_bucket",
+        description: "Provision a Garage S3 bucket through a StateStore",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "StateStore name" },
+            namespace: { type: "string", description: "Workspace namespace" },
+            bucket: { type: "string", description: "Bucket name (defaults to StateStore name)" },
+            secretName: { type: "string", description: "Secret name for S3 credentials (defaults to <bucket>-s3)" },
+            read: { type: "boolean", description: "Grant read access", default: true },
+            write: { type: "boolean", description: "Grant write access", default: true },
+            owner: { type: "boolean", description: "Grant owner access", default: false }
+          },
+          required: ["name", "namespace"]
+        }
+      },
+      {
         name: "add_stream",
         description: "Provision an EventStream",
         inputSchema: {
@@ -411,6 +438,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await deleteApp(args as unknown as AppDeleteArgs);
       case "add_database":
         return await addDatabase(args as unknown as AddDatabaseArgs);
+      case "add_bucket":
+        return await addBucket(args as unknown as AddBucketArgs);
       case "add_stream":
         return await addStream(args as unknown as AddStreamArgs);
       case "list_infra":
@@ -625,6 +654,54 @@ async function addDatabase(args: AddDatabaseArgs) {
 
   const result = await applyNamespacedCustomObject("statestores", args.namespace, body);
   return ok("Infrastructure created", result.body, { source: "kubernetes", action: result.action });
+}
+
+async function addBucket(args: AddBucketArgs) {
+  validateK8sName(args.name, "resource name");
+  validateK8sName(args.namespace, "namespace");
+
+  const bucket = args.bucket?.trim() || args.name;
+  validateBucketName(bucket);
+  const secretName = args.secretName?.trim() || `${bucket}-s3`;
+  validateK8sName(secretName, "secret name");
+
+  const body = {
+    apiVersion: `${shouldersGroup}/${shouldersVersion}`,
+    kind: "StateStore",
+    metadata: { name: args.name, namespace: args.namespace },
+    spec: {
+      postgresql: { enabled: false },
+      redis: { enabled: false },
+      objectStorage: {
+        enabled: true,
+        buckets: [
+          {
+            name: bucket,
+            secretName,
+            read: args.read ?? true,
+            write: args.write ?? true,
+            owner: args.owner ?? false
+          }
+        ]
+      }
+    }
+  };
+
+  const result = await applyNamespacedCustomObject("statestores", args.namespace, body);
+  return ok("Object bucket created", result.body, { source: "kubernetes", action: result.action });
+}
+
+function validateBucketName(value: string) {
+  if (!value || value.trim().length === 0) {
+    throw new ValidationError("bucket name is required");
+  }
+  if (value.length < 3 || value.length > 63) {
+    throw new ValidationError("bucket name must be between 3 and 63 characters");
+  }
+  const pattern = /^[a-z0-9][a-z0-9.-]*[a-z0-9]$/;
+  if (!pattern.test(value) || value.includes("..") || value.includes(".-") || value.includes("-.")) {
+    throw new ValidationError("bucket name must be a valid S3 bucket name");
+  }
 }
 
 async function addStream(args: AddStreamArgs) {

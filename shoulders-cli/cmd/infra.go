@@ -18,6 +18,11 @@ import (
 var (
 	dbType           string
 	dbTier           string
+	bucketName       string
+	bucketSecretName string
+	bucketRead       bool
+	bucketWrite      bool
+	bucketOwner      bool
 	streamTopics     string
 	streamPartitions int32
 	streamReplicas   int32
@@ -151,6 +156,69 @@ var infraAddStreamCmd = &cobra.Command{
 	},
 }
 
+var infraAddBucketCmd = &cobra.Command{
+	Use:   "add-bucket <name>",
+	Short: "Create an object storage bucket StateStore",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		namespace, err := currentNamespace()
+		if err != nil {
+			return err
+		}
+
+		bucket := strings.TrimSpace(bucketName)
+		if bucket == "" {
+			bucket = name
+		}
+		secretName := strings.TrimSpace(bucketSecretName)
+		if secretName == "" {
+			secretName = fmt.Sprintf("%s-s3", bucket)
+		}
+
+		store := v1alpha1.StateStore{
+			TypeMeta:   v1alpha1.TypeMeta("StateStore"),
+			ObjectMeta: v1alpha1.ObjectMeta(name, namespace),
+			Spec: v1alpha1.StateStoreSpec{
+				Postgresql: &v1alpha1.PostgresSpec{Enabled: boolPtr(false)},
+				Redis:      &v1alpha1.RedisSpec{Enabled: boolPtr(false)},
+				ObjectStorage: &v1alpha1.ObjectStorageSpec{
+					Enabled: boolPtr(true),
+					Buckets: []v1alpha1.BucketSpec{
+						{
+							Name:       bucket,
+							SecretName: secretName,
+							Read:       boolPtr(bucketRead),
+							Write:      boolPtr(bucketWrite),
+							Owner:      boolPtr(bucketOwner),
+						},
+					},
+				},
+			},
+		}
+
+		manifest, err := yaml.Marshal(store)
+		if err != nil {
+			return err
+		}
+		obj := &unstructured.Unstructured{}
+		if err := yaml.Unmarshal(manifest, obj); err != nil {
+			return err
+		}
+
+		dynamicClient, err := kube.NewDynamicClient(kubeconfig)
+		if err != nil {
+			return err
+		}
+		gvr := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "statestores"}
+		if err := kube.Apply(context.Background(), dynamicClient, gvr, namespace, obj); err != nil {
+			return err
+		}
+		fmt.Printf("Object bucket %s created\n", bucket)
+		return nil
+	},
+}
+
 var infraListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List infrastructure resources",
@@ -278,12 +346,18 @@ func parseConfig(entries []string) (map[string]interface{}, error) {
 
 func init() {
 	infraCmd.AddCommand(infraAddDbCmd)
+	infraCmd.AddCommand(infraAddBucketCmd)
 	infraCmd.AddCommand(infraAddStreamCmd)
 	infraCmd.AddCommand(infraListCmd)
 	infraCmd.AddCommand(infraDeleteCmd)
 
 	infraAddDbCmd.Flags().StringVar(&dbType, "type", "postgres", "Database type: postgres|redis")
 	infraAddDbCmd.Flags().StringVar(&dbTier, "tier", "dev", "Database tier: dev|prod")
+	infraAddBucketCmd.Flags().StringVar(&bucketName, "bucket", "", "Bucket name (defaults to resource name)")
+	infraAddBucketCmd.Flags().StringVar(&bucketSecretName, "secret", "", "Secret name for S3 credentials (defaults to <bucket>-s3)")
+	infraAddBucketCmd.Flags().BoolVar(&bucketRead, "read", true, "Grant read access to the generated key")
+	infraAddBucketCmd.Flags().BoolVar(&bucketWrite, "write", true, "Grant write access to the generated key")
+	infraAddBucketCmd.Flags().BoolVar(&bucketOwner, "owner", false, "Grant owner access to the generated key")
 
 	infraAddStreamCmd.Flags().StringVar(&streamTopics, "topics", "", "Comma-separated topic names")
 	infraAddStreamCmd.Flags().Int32Var(&streamPartitions, "partitions", 0, "Partitions per topic (default from XRD)")
@@ -291,6 +365,7 @@ func init() {
 	infraAddStreamCmd.Flags().StringArrayVar(&streamConfig, "config", nil, "Topic config entry (key=value), repeatable")
 
 	registerNamespaceFlag(infraAddDbCmd)
+	registerNamespaceFlag(infraAddBucketCmd)
 	registerNamespaceFlag(infraAddStreamCmd)
 	registerNamespaceFlag(infraListCmd)
 	registerNamespaceFlag(infraDeleteCmd)

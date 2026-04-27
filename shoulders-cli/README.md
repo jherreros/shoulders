@@ -61,6 +61,7 @@ go build -o shoulders
 ### Infrastructure
 ```bash
 ./shoulders infra add-db app-db --type postgres --tier dev
+./shoulders infra add-bucket app-assets --bucket team-a-assets --secret team-a-assets-s3
 ./shoulders infra add-stream events --topics "logs,events" --partitions 3 --replicas 3 \
 	--config cleanup.policy=compact
 ./shoulders infra list
@@ -131,6 +132,7 @@ Use `-o table|json|yaml` for supported list and status commands.
 - `shoulders up --verbose` shows detailed descriptions for each bootstrap phase.
 - `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
 - `shoulders reporter` opens the configured Policy Reporter host, defaulting to `reporter.localhost`, and falls back to a local port-forward on port 8082.
+- `shoulders infra add-bucket` creates a StateStore object bucket backed by Garage and writes S3 credentials to a workspace Secret.
 - `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
 - `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.

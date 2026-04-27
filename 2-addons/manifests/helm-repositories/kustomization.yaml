@@ -5,6 +5,7 @@ resources:
   - dex.yaml
   - kyverno.yaml
   - strimzi.yaml
+  - garage.yaml
   - cnpg.yaml
   - crossplane.yaml
   - headlamp.yaml

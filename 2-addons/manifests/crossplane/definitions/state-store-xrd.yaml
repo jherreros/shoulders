@@ -41,3 +41,35 @@ spec:
                     replicas:
                       type: integer
                       default: 1
+                objectStorage:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false
+                    endpoint:
+                      type: string
+                      default: http://garage.garage.svc.cluster.local:3900
+                    region:
+                      type: string
+                      default: garage
+                    buckets:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                          secretName:
+                            type: string
+                          read:
+                            type: boolean
+                            default: true
+                          write:
+                            type: boolean
+                            default: true
+                          owner:
+                            type: boolean
+                            default: false

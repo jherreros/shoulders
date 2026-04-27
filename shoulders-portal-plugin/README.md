@@ -14,7 +14,7 @@ and surfaces four resource types:
 |---|---|
 | **Workspaces** | Cluster-scoped workspace foundations and guardrails |
 | **Web Applications** | Deployments with ingress, routing, and scaling |
-| **State Stores** | PostgreSQL and Redis services for teams |
+| **State Stores** | PostgreSQL, Redis, and Garage object buckets for teams |
 | **Event Streams** | Kafka-backed topic bundles for streaming workloads |
 
 ## Prerequisites

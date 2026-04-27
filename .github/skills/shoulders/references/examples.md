@@ -28,6 +28,15 @@ shoulders app init cache-demo-app --image myapp:latest --host app.local
 shoulders infra add-db cache-demo-redis --type redis
 ```
 
+## Application with object storage
+
+```bash
+shoulders workspace create assets-demo
+shoulders workspace use assets-demo
+shoulders app init assets-demo-api --image myapp:latest --host assets.local
+shoulders infra add-bucket assets-demo-bucket --bucket assets-demo-files
+```
+
 ## Full-stack: app + database + Kafka
 
 ```bash
@@ -36,6 +45,7 @@ shoulders workspace use platform
 shoulders app init platform-api --image api:latest --host api.local --port 8080
 shoulders infra add-db platform-db --type postgres --tier prod
 shoulders infra add-db platform-cache --type redis
+shoulders infra add-bucket platform-assets --bucket platform-assets
 shoulders infra add-stream platform-events --topics "orders,notifications,audit" --partitions 5
 shoulders infra list
 shoulders logs platform-api

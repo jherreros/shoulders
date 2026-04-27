@@ -136,13 +136,23 @@ var upCmd = &cobra.Command{
 			{"observability", "kube-prometheus-stack-grafana"},
 			{"policy-reporter", "policy-reporter-ui"},
 		}
-		tracker.Start(verboseDetail("waiting for %d deployments: dex, headlamp, grafana, policy-reporter-ui", len(deployments)))
+		tracker.Start(verboseDetail("waiting for %d deployments plus Garage object storage", len(deployments)))
 		for _, d := range deployments {
 			tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s", d.ns, d.name))
 			if err := bootstrap.WaitForDeploymentReady(kubeconfig, d.ns, d.name, 10*time.Minute); err != nil {
 				tracker.Fail(fmt.Sprintf("%s/%s not ready", d.ns, d.name))
 				return fmt.Errorf("failed waiting for %s deployment: %w", d.name, err)
 			}
+		}
+		tracker.UpdateDetail("waiting for garage/garage StatefulSet")
+		if err := bootstrap.WaitForStatefulSetReady(kubeconfig, "garage", "garage", 10*time.Minute); err != nil {
+			tracker.Fail("garage/garage not ready")
+			return fmt.Errorf("failed waiting for garage statefulset: %w", err)
+		}
+		tracker.UpdateDetail("waiting for garage layout initialization")
+		if err := bootstrap.WaitForJobComplete(kubeconfig, "garage", "garage-layout-init", 10*time.Minute); err != nil {
+			tracker.Fail("garage layout not initialized")
+			return fmt.Errorf("failed waiting for garage layout initialization: %w", err)
 		}
 		tracker.Complete()
 

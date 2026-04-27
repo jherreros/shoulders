@@ -11,3 +11,10 @@ spec:
   redis:
     enabled: true
     replicas: 1
+  objectStorage:
+    enabled: true
+    buckets:
+      - name: team-a-assets
+        secretName: team-a-assets-s3
+        read: true
+        write: true

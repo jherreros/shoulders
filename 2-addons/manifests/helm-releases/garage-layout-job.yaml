@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-layout-init
+  namespace: garage
+spec:
+  backoffLimit: 12
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-layout
+          image: python:3.13-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GARAGE_ADMIN_URL
+              value: http://garage-admin.garage.svc.cluster.local:3903
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-admin-token
+                  key: token
+            - name: GARAGE_ZONE
+              value: local
+            - name: GARAGE_CAPACITY_BYTES
+              value: "1000000000"
+          command:
+            - python
+            - -c
+            - |
+              import json
+              import os
+              import time
+              import urllib.error
+              import urllib.request
+
+              base_url = os.environ["GARAGE_ADMIN_URL"].rstrip("/")
+              token = os.environ["GARAGE_ADMIN_TOKEN"]
+              headers = {"Authorization": f"Bearer {token}"}
+
+              def request(method, path, body=None, expected=(200,)):
+                  data = None
+                  request_headers = dict(headers)
+                  if body is not None:
+                      data = json.dumps(body).encode("utf-8")
+                      request_headers["Content-Type"] = "application/json"
+                  req = urllib.request.Request(f"{base_url}{path}", data=data, headers=request_headers, method=method)
+                  with urllib.request.urlopen(req, timeout=10) as response:
+                      if response.status not in expected:
+                          raise RuntimeError(f"unexpected {method} {path} status: {response.status}")
+                      payload = response.read()
+                      if not payload:
+                          return None
+                      content_type = response.headers.get("Content-Type", "")
+                      if "application/json" in content_type:
+                          return json.loads(payload.decode("utf-8"))
+                      return payload.decode("utf-8")
+
+              status = None
+              for attempt in range(60):
+                  try:
+                      status = request("GET", "/v1/status")
+                      break
+                  except Exception as exc:
+                      print(f"waiting for Garage admin API ({attempt + 1}/60): {exc}", flush=True)
+                      time.sleep(5)
+              if status is None:
+                  raise SystemExit("Garage admin API did not become available")
+
+              node_id = status["node"]
+              layout = request("GET", "/v1/layout")
+              roles = layout.get("roles", [])
+              if not any(role.get("id") == node_id and role.get("capacity") is not None for role in roles):
+                  layout = request("POST", "/v1/layout", [{
+                      "id": node_id,
+                      "zone": os.environ.get("GARAGE_ZONE", "local"),
+                      "capacity": int(os.environ.get("GARAGE_CAPACITY_BYTES", "1000000000")),
+                      "tags": ["shoulders"]
+                  }])
+                  request("POST", "/v1/layout/apply", {"version": int(layout.get("version", 0)) + 1})
+
+              for attempt in range(60):
+                  try:
+                      request("GET", "/health")
+                      print("Garage layout is initialized", flush=True)
+                      break
+                  except Exception as exc:
+                      print(f"waiting for Garage health ({attempt + 1}/60): {exc}", flush=True)
+                      time.sleep(5)
+              else:
+                  raise SystemExit("Garage did not become healthy after layout initialization")

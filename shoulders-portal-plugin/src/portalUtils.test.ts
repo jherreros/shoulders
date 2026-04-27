@@ -52,6 +52,40 @@ describe('portalUtils', () => {
 		);
 	});
 
+	it('builds statestore object storage buckets', () => {
+		const config = resourceConfigs.find((item) => item.id === 'statestores');
+		expect(config).toBeDefined();
+		const form = getDefaultCreateState('team-a');
+		form.name = 'team-a-assets';
+		form.stateStore.postgresEnabled = false;
+		form.stateStore.redisEnabled = false;
+		form.stateStore.objectStorageEnabled = true;
+		form.stateStore.objectBuckets = 'team-a-assets, team-a-backups';
+		form.stateStore.objectOwner = true;
+
+		const manifest = buildManifest(config!, form) as Record<string, any>;
+
+		expect(manifest.spec.objectStorage).toEqual({
+			enabled: true,
+			buckets: [
+				{ name: 'team-a-assets', read: true, write: true, owner: true },
+				{ name: 'team-a-backups', read: true, write: true, owner: true },
+			],
+		});
+	});
+
+	it('requires buckets when object storage is enabled', () => {
+		const config = resourceConfigs.find((item) => item.id === 'statestores');
+		expect(config).toBeDefined();
+		const form = getDefaultCreateState('team-a');
+		form.name = 'team-a-assets';
+		form.stateStore.postgresEnabled = false;
+		form.stateStore.redisEnabled = false;
+		form.stateStore.objectStorageEnabled = true;
+
+		expect(validateForm(config!, form)).toBe('Add at least one object storage bucket.');
+	});
+
 	it('derives sibling platform hosts from the current headlamp domain', () => {
 		expect(platformUIURL('grafana', 'headlamp.lvh.me')).toBe('http://grafana.lvh.me');
 		expect(platformUIURL('dex', 'headlamp.lvh.me')).toBe('https://dex.lvh.me');

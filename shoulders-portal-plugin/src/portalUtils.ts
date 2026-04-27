@@ -54,6 +54,11 @@ export function getDefaultCreateState(namespaceFilter: string): CreateFormState 
 			postgresDatabases: '',
 			redisEnabled: true,
 			redisReplicas: '1',
+			objectStorageEnabled: false,
+			objectBuckets: '',
+			objectRead: true,
+			objectWrite: true,
+			objectOwner: false,
 		},
 		eventStream: {
 			topicsText: '',
@@ -103,6 +108,12 @@ export function buildManifest(config: ResourceConfig, form: CreateFormState) {
 	if (config.id === 'statestores') {
 		const databases = parseListInput(form.stateStore.postgresDatabases);
 		const redisReplicas = Number(form.stateStore.redisReplicas);
+		const buckets = parseListInput(form.stateStore.objectBuckets).map((name) => ({
+			name,
+			read: form.stateStore.objectRead,
+			write: form.stateStore.objectWrite,
+			owner: form.stateStore.objectOwner,
+		}));
 		return {
 			apiVersion: config.apiVersion,
 			kind: config.kind,
@@ -116,6 +127,10 @@ export function buildManifest(config: ResourceConfig, form: CreateFormState) {
 				redis: {
 					enabled: form.stateStore.redisEnabled,
 					replicas: Number.isFinite(redisReplicas) ? redisReplicas : 1,
+				},
+				objectStorage: {
+					enabled: form.stateStore.objectStorageEnabled,
+					buckets,
 				},
 			},
 		};
@@ -147,8 +162,15 @@ export function validateForm(config: ResourceConfig, form: CreateFormState) {
 		}
 	}
 	if (config.id === 'statestores') {
-		if (!form.stateStore.postgresEnabled && !form.stateStore.redisEnabled) {
-			return 'Enable PostgreSQL or Redis (or both).';
+		if (
+			!form.stateStore.postgresEnabled &&
+			!form.stateStore.redisEnabled &&
+			!form.stateStore.objectStorageEnabled
+		) {
+			return 'Enable PostgreSQL, Redis, or object storage.';
+		}
+		if (form.stateStore.objectStorageEnabled && parseListInput(form.stateStore.objectBuckets).length === 0) {
+			return 'Add at least one object storage bucket.';
 		}
 	}
 	return '';

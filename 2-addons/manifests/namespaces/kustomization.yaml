@@ -7,6 +7,7 @@ resources:
   - strimzi-namespace.yaml
   - cnpg-namespace.yaml
   - kafka-namespace.yaml
+  - garage-namespace.yaml
   - headlamp-namespace.yaml
   - observability-namespace.yaml
   - trivy-system-namespace.yaml

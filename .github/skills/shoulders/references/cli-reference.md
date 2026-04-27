@@ -60,12 +60,13 @@ An app creates:
 - A Service on port 80
 - An HTTPRoute (Gateway API) routing traffic for the hostname
 
-## Infrastructure: Databases & Caches
+## Infrastructure: Databases, Caches & Object Buckets
 
-Provision PostgreSQL and Redis. **Namespace-scoped.**
+Provision PostgreSQL, Redis, and Garage S3 buckets. **Namespace-scoped.**
 
 ```bash
 shoulders infra add-db <name> [flags]     # Create StateStore
+shoulders infra add-bucket <name> [flags] # Create Garage S3 bucket StateStore
 shoulders infra list                      # List all infra
 shoulders infra delete <name>             # Delete infra resource
 ```
@@ -84,6 +85,22 @@ A PostgreSQL StateStore creates:
 
 A Redis StateStore creates:
 - A Redis Deployment and Service
+
+**Flags for `add-bucket`:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--bucket` | resource name | Garage bucket name |
+| `--secret` | `<bucket>-s3` | Secret that receives S3 credentials |
+| `--read` | `true` | Grant read access |
+| `--write` | `true` | Grant write access |
+| `--owner` | `false` | Grant owner access |
+| `-n` | active workspace | Target namespace |
+
+A bucket StateStore creates:
+- A Garage bucket
+- A Garage access key bound to the bucket
+- A workspace Secret with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_ENDPOINT_URL`, and `S3_BUCKET`
 
 ## Infrastructure: Event Streams (Kafka)
 

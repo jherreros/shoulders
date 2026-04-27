@@ -16,7 +16,7 @@ Shoulders allows developers to declaratively provision and manage:
 
 - **Workspaces** — Isolated tenant environments with network policies and naming conventions.
 - **Web Applications** — Containerized applications with Deployments, Services, and Gateway API routing.
-- **State Stores** — PostgreSQL databases (via CloudNativePG) and Redis caches with independent toggles.
+- **State Stores** — PostgreSQL databases (via CloudNativePG), Redis caches, and Garage S3 buckets with independent toggles.
 - **Event Streams** — Full Kafka clusters and multiple topics (via Strimzi).
 - **Observability** — Built-in LGTM stack (Loki, Grafana, Tempo, Prometheus) for comprehensive monitoring.
 
@@ -60,6 +60,7 @@ A Headlamp plugin that renders a self-service UI for Shoulders resources inside 
 | [Gateway API](https://gateway-api.sigs.k8s.io) | Kubernetes-native routing (HTTPRoute) backed by Cilium |
 | [Strimzi](https://strimzi.io) | Kubernetes-native Apache Kafka operator |
 | [CloudNativePG](https://cloudnative-pg.io) | PostgreSQL operator for Kubernetes |
+| [Garage](https://garagehq.deuxfleurs.fr/) | Lightweight S3-compatible object storage |
 | [Kyverno](https://kyverno.io) | Policy-as-code for security and governance |
 | [Trivy Operator](https://aquasecurity.github.io/trivy-operator/) | Vulnerability and misconfiguration scanning |
 | [Falco](https://falco.org) | Runtime threat detection |
@@ -189,6 +190,7 @@ shoulders app describe <name>           # Show WebApplication details
 shoulders app delete <name>             # Delete a WebApplication
 
 shoulders infra add-db <name>           # Create a StateStore (--type postgres|redis, --tier dev|prod)
+shoulders infra add-bucket <name>       # Create a Garage S3 bucket StateStore (--bucket, --secret)
 shoulders infra add-stream <name>       # Create an EventStream (--topics, --partitions, --replicas, --config)
 shoulders infra list                    # List StateStores and EventStreams
 shoulders infra delete <name>           # Delete an infrastructure resource
@@ -254,7 +256,7 @@ This provisions:
 
 ### StateStore
 
-StateStores provision database and caching services. They are **namespace-scoped**. Both PostgreSQL and Redis can be independently enabled or disabled.
+StateStores provision database, cache, and object storage services. They are **namespace-scoped**. PostgreSQL, Redis, and object storage can be independently enabled or disabled.
 
 ```yaml
 apiVersion: shoulders.io/v1alpha1
@@ -270,6 +272,13 @@ spec:
   redis:
     enabled: true
     replicas: 1
+  objectStorage:
+    enabled: true
+    buckets:
+      - name: team-a-assets
+        secretName: team-a-assets-s3
+        read: true
+        write: true
 ```
 
 | Field | Type | Default | Description |
@@ -279,12 +288,25 @@ spec:
 | `postgresql.databases` | string[] | — | Additional databases to create |
 | `redis.enabled` | boolean | `true` | Enable Redis |
 | `redis.replicas` | integer | `1` | Redis replicas |
+| `objectStorage.enabled` | boolean | `false` | Enable Garage bucket provisioning |
+| `objectStorage.endpoint` | string | `http://garage.garage.svc.cluster.local:3900` | S3 endpoint stored in generated Secrets |
+| `objectStorage.region` | string | `garage` | S3 region stored in generated Secrets |
+| `objectStorage.buckets[].name` | string | — | Garage bucket name |
+| `objectStorage.buckets[].secretName` | string | `<bucket>-s3` | Kubernetes Secret for S3 credentials |
+| `objectStorage.buckets[].read` | boolean | `true` | Grant read access to the generated key |
+| `objectStorage.buckets[].write` | boolean | `true` | Grant write access to the generated key |
+| `objectStorage.buckets[].owner` | boolean | `false` | Grant owner access to the generated key |
 
 When PostgreSQL is enabled, this creates:
 - A CloudNativePG **Cluster** (2 instances) with an `app` user, an `app-secret` Secret (base64 credentials), and any extra databases listed.
 
 When Redis is enabled, this creates:
 - A Redis **Deployment** and **Service** (`<name>-redis`).
+
+When object storage is enabled, this creates:
+- A Garage bucket for each `objectStorage.buckets[]` entry.
+- A Garage access key with the requested bucket permissions.
+- A Kubernetes **Secret** in the workspace namespace containing `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_ENDPOINT_URL`, and `S3_BUCKET`.
 
 ### EventStream
 
