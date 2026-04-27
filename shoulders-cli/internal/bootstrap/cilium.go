@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart/loader"
-	helmcli "helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/storage/driver"
+	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/chart/loader"
+	helmcli "helm.sh/helm/v4/pkg/cli"
+	helmkube "helm.sh/helm/v4/pkg/kube"
+	"helm.sh/helm/v4/pkg/storage/driver"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -33,7 +33,7 @@ func EnsureCilium(kubeconfigPath, version string) error {
 	settings.SetNamespace("kube-system")
 
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), "secret", log.Printf); err != nil {
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), "secret"); err != nil {
 		return err
 	}
 
@@ -125,6 +125,7 @@ func EnsureCilium(kubeconfigPath, version string) error {
 		upgrade := action.NewUpgrade(actionConfig)
 		upgrade.Namespace = settings.Namespace()
 		upgrade.Version = version
+		upgrade.WaitStrategy = helmkube.LegacyStrategy
 		if _, err = upgrade.Run(ciliumChartName, chart, values); err != nil {
 			return err
 		}
@@ -136,6 +137,7 @@ func EnsureCilium(kubeconfigPath, version string) error {
 	install.Namespace = settings.Namespace()
 	install.CreateNamespace = true
 	install.Version = version
+	install.WaitStrategy = helmkube.LegacyStrategy
 	if _, err = install.Run(chart, values); err != nil {
 		return err
 	}
@@ -160,11 +162,12 @@ func UninstallCilium(kubeconfigPath string) error {
 	settings.SetNamespace("kube-system")
 
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), "secret", log.Printf); err != nil {
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), "secret"); err != nil {
 		return err
 	}
 
 	uninstall := action.NewUninstall(actionConfig)
+	uninstall.WaitStrategy = helmkube.LegacyStrategy
 	_, err := uninstall.Run(ciliumChartName)
 	if err != nil && err != driver.ErrReleaseNotFound {
 		return err
