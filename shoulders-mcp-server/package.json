@@ -29,7 +29,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18.20.8"
+    "node": ">=24.15.0"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
