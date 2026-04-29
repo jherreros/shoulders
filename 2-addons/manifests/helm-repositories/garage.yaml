@@ -7,4 +7,4 @@ spec:
   interval: 10m
   url: https://git.deuxfleurs.fr/Deuxfleurs/garage.git
   ref:
-    commit: b6b18427a5fc9b5b7540cf6d0843afd5cf7f9b56
+    commit: a2c797000fbcc68fcfd866a4d9e3375ebfdc0d99
