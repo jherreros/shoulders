@@ -17,7 +17,7 @@ spec:
         kind: HelmRepository
         name: policy-reporter
         namespace: flux-system
-      version: "3.7.3"
+      version: "3.7.4"
   values:
     metrics:
       enabled: true
