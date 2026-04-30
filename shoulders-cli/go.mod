@@ -6,14 +6,14 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/loft-sh/log v0.0.0-20250610153027-c2f046135b12
-	github.com/loft-sh/vcluster v0.33.1
+	github.com/loft-sh/vcluster v0.34.0
 	github.com/pterm/pterm v0.12.83
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	helm.sh/helm/v4 v4.1.4
-	k8s.io/api v0.35.4
-	k8s.io/apimachinery v0.35.4
-	k8s.io/client-go v0.35.4
+	k8s.io/api v0.36.0
+	k8s.io/apimachinery v0.36.0
+	k8s.io/client-go v0.36.0
 	sigs.k8s.io/yaml v1.6.0
 )
 
