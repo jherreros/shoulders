@@ -13,21 +13,21 @@
     "rangeStrategy": "bump"
   },
   "flux": {
-    "fileMatch": [
-      "(^|/)2-addons/manifests/.*\\.ya?ml$"
+    "managerFilePatterns": [
+      "/(^|/)2-addons/manifests/.*\\.ya?ml$/"
     ]
   },
   "kubernetes": {
-    "fileMatch": [
-      "(^|/)1-cluster/kind-config\\.yaml$"
+    "managerFilePatterns": [
+      "/(^|/)1-cluster/kind-config\\.yaml$/"
     ]
   },
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        "(^|/)1-cluster/vind-config\\.yaml$",
-        "(^|/)shoulders-cli/internal/manifests/vind-config\\.yaml$"
+      "managerFilePatterns": [
+        "/(^|/)1-cluster/vind-config\\.yaml$/",
+        "/(^|/)shoulders-cli/internal/manifests/vind-config\\.yaml$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( versioning=(?<versioning>\\S+))?\\s+version:\\s*(?<currentValue>\\S+)"
