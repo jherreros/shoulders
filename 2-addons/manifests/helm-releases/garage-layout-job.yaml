@@ -59,7 +59,7 @@ spec:
               status = None
               for attempt in range(60):
                   try:
-                      status = request("GET", "/v1/status")
+                      status = request("GET", "/v2/GetClusterStatus")
                       break
                   except Exception as exc:
                       print(f"waiting for Garage admin API ({attempt + 1}/60): {exc}", flush=True)
@@ -67,17 +67,22 @@ spec:
               if status is None:
                   raise SystemExit("Garage admin API did not become available")
 
-              node_id = status["node"]
-              layout = request("GET", "/v1/layout")
+              nodes = status.get("nodes", [])
+              if not nodes:
+                  raise SystemExit("Garage admin API returned no cluster nodes")
+              node_id = nodes[0]["id"]
+              layout = request("GET", "/v2/GetClusterLayout")
               roles = layout.get("roles", [])
               if not any(role.get("id") == node_id and role.get("capacity") is not None for role in roles):
-                  layout = request("POST", "/v1/layout", [{
-                      "id": node_id,
-                      "zone": os.environ.get("GARAGE_ZONE", "local"),
-                      "capacity": int(os.environ.get("GARAGE_CAPACITY_BYTES", "1000000000")),
-                      "tags": ["shoulders"]
-                  }])
-                  request("POST", "/v1/layout/apply", {"version": int(layout.get("version", 0)) + 1})
+                  layout = request("POST", "/v2/UpdateClusterLayout", {
+                      "roles": [{
+                          "id": node_id,
+                          "zone": os.environ.get("GARAGE_ZONE", "local"),
+                          "capacity": int(os.environ.get("GARAGE_CAPACITY_BYTES", "1000000000")),
+                          "tags": ["shoulders"]
+                      }]
+                  })
+                  request("POST", "/v2/ApplyClusterLayout", {"version": int(layout.get("version", 0)) + 1})
 
               for attempt in range(60):
                   try:

@@ -19,7 +19,7 @@ spec:
         resources:
           - name: kafka-node-pool
             base:
-              apiVersion: kafka.strimzi.io/v1beta2
+              apiVersion: kafka.strimzi.io/v1
               kind: KafkaNodePool
               spec:
                 replicas: 3
@@ -33,6 +33,7 @@ spec:
                       type: persistent-claim
                       size: 1Gi
                       deleteClaim: false
+                      kraftMetadata: shared
             patches:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
@@ -57,15 +58,12 @@ spec:
               - type: None
           - name: kafka-cluster
             base:
-              apiVersion: kafka.strimzi.io/v1beta2
+              apiVersion: kafka.strimzi.io/v1
               kind: Kafka
-              metadata:
-                annotations:
-                  strimzi.io/node-pools: enabled
-                  strimzi.io/kraft: enabled
               spec:
                 kafka:
-                  version: 4.1.1
+                  version: 4.2.0
+                  metadataVersion: 4.2-IV1
                   listeners:
                     - name: plain
                       port: 9092
@@ -107,7 +105,7 @@ spec:
           template: |
             {{ range .observed.composite.resource.spec.topics }}
             ---
-            apiVersion: kafka.strimzi.io/v1beta2
+            apiVersion: kafka.strimzi.io/v1
             kind: KafkaTopic
             metadata:
               annotations:

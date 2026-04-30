@@ -15,7 +15,7 @@ spec:
   values:
     garage:
       dbEngine: sqlite
-      replicationMode: "1"
+      replicationFactor: "1"
       s3:
         api:
           region: garage

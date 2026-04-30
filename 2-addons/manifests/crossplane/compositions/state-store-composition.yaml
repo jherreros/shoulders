@@ -290,25 +290,25 @@ spec:
                           else:
                               raise SystemExit("Garage did not become healthy")
 
-                          bucket_path = "/v1/bucket?globalAlias=" + urllib.parse.quote(bucket_name)
+                          bucket_path = "/v2/GetBucketInfo?globalAlias=" + urllib.parse.quote(bucket_name)
                           bucket = garage_request_optional("GET", bucket_path)
                           if bucket is None:
-                              bucket = garage_request("POST", "/v1/bucket", {"globalAlias": bucket_name})
+                              bucket = garage_request("POST", "/v2/CreateBucket", {"globalAlias": bucket_name})
                           bucket_id = bucket["id"]
 
                           key_name = f"{target_namespace}-{secret_name}"
                           key = None
-                          for candidate in garage_request("GET", "/v1/key?list"):
+                          for candidate in garage_request("GET", "/v2/ListKeys"):
                               if candidate.get("name") == key_name:
                                   key_id = urllib.parse.quote(candidate["id"])
-                                  key = garage_request("GET", f"/v1/key?id={key_id}&showSecretKey=true")
+                                  key = garage_request("GET", f"/v2/GetKeyInfo?id={key_id}&showSecretKey=true")
                                   break
                           if key is None:
-                              key = garage_request("POST", "/v1/key?list", {"name": key_name})
+                              key = garage_request("POST", "/v2/CreateKey", {"name": key_name})
                           access_key_id = key["accessKeyId"]
                           secret_access_key = key["secretAccessKey"]
 
-                          garage_request("POST", "/v1/bucket/allow", {
+                          garage_request("POST", "/v2/AllowBucketKey", {
                               "bucketId": bucket_id,
                               "accessKeyId": access_key_id,
                               "permissions": {

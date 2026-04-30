@@ -5,6 +5,10 @@ metadata:
   namespace: strimzi-system
 spec:
   interval: 5m
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   chart:
     spec:
       chart: strimzi-kafka-operator
@@ -12,10 +16,10 @@ spec:
         kind: HelmRepository
         name: strimzi
         namespace: flux-system
-      version: "0.51.0"
+      version: "1.0.0"
   values:
     watchAnyNamespace: true
     dashboards:
       enabled: true
-      labels:
-        grafana_dashboard: "1"
+      label: grafana_dashboard
+      labelValue: "1"
