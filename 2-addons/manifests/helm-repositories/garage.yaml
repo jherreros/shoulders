@@ -9,3 +9,5 @@ spec:
   url: https://git.deuxfleurs.fr/Deuxfleurs/garage.git
   ref:
     commit: a2c797000fbcc68fcfd866a4d9e3375ebfdc0d99
+  sparseCheckout:
+    - script/helm/garage
