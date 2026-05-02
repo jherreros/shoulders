@@ -9,6 +9,10 @@ import (
 )
 
 func Load(pathOverride ...string) (*Config, error) {
+	return LoadWithOverrides(nil, pathOverride...)
+}
+
+func LoadWithOverrides(overrides []string, pathOverride ...string) (*Config, error) {
 	configPath, err := Path(pathOverride...)
 	if err != nil {
 		return nil, err
@@ -18,15 +22,18 @@ func Load(pathOverride ...string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			cfg.ApplyDefaults()
-			return cfg, cfg.Validate()
+			data = nil
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 	if len(data) > 0 {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, err
 		}
+	}
+	if err := ApplyOverrides(cfg, overrides); err != nil {
+		return nil, err
 	}
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {

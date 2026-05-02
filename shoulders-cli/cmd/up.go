@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/bootstrap"
@@ -259,18 +258,22 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 	for {
 		select {
 		case <-ticker.C:
-			ready, pending, err := flux.AllKustomizationsReady(ctx, client, "flux-system")
+			pending, err := flux.PendingKustomizations(ctx, client, "flux-system")
 			if err != nil {
 				lastErr = err
 				tracker.UpdateDetail(fmt.Sprintf("waiting for flux api: %v", err))
 				continue
 			}
 			lastErr = nil
-			if ready {
+			if len(pending) == 0 {
 				return nil
 			}
+			if failed, ok := flux.FirstMissingPathFailure(pending); ok {
+				return fmt.Errorf("flux kustomization %q cannot find its configured path: %s%s", failed.Name, failed.Message, fluxSourceHint())
+			}
 			now := time.Now()
-			for _, name := range pending {
+			for _, item := range pending {
+				name := item.Name
 				if last, ok := lastReconcileRequest[name]; ok && now.Sub(last) < 30*time.Second {
 					continue
 				}
@@ -281,7 +284,7 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 				}
 				lastReconcileRequest[name] = now
 			}
-			tracker.UpdateDetail(fmt.Sprintf("pending: %s", strings.Join(pending, ", ")))
+			tracker.UpdateDetail(fmt.Sprintf("pending: %s", flux.FormatPending(pending)))
 		case <-timeout:
 			if lastErr != nil {
 				return lastErr
@@ -289,6 +292,16 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 			return fmt.Errorf("timed out waiting for Flux Kustomizations")
 		}
 	}
+}
+
+func fluxSourceHint() string {
+	if currentConfig == nil {
+		return ""
+	}
+	if currentConfig.FluxRepositoryURL() != config.DefaultFluxRepoURL || currentConfig.FluxRepositoryBranch() != config.DefaultFluxBranch {
+		return ""
+	}
+	return fmt.Sprintf(". The default Flux source is %s@%s; if you are validating local changes that are not pushed there, pass --set platform.flux.gitRepository.url=<repo-url> and --set platform.flux.gitRepository.branch=<branch>", config.DefaultFluxRepoURL, config.DefaultFluxBranch)
 }
 
 func waitForHealthyStatus(ctx context.Context, timeout time.Duration) error {

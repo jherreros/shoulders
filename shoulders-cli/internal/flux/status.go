@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
@@ -20,6 +22,12 @@ var kustomizationGVR = schema.GroupVersionResource{
 	Resource: "kustomizations",
 }
 
+type KustomizationReadiness struct {
+	Name    string
+	Reason  string
+	Message string
+}
+
 func ListKustomizations(ctx context.Context, client dynamic.Interface, namespace string) ([]unstructured.Unstructured, error) {
 	resource := client.Resource(kustomizationGVR)
 	var listResource dynamic.ResourceInterface = resource
@@ -34,19 +42,57 @@ func ListKustomizations(ctx context.Context, client dynamic.Interface, namespace
 }
 
 func AllKustomizationsReady(ctx context.Context, client dynamic.Interface, namespace string) (bool, []string, error) {
-	items, err := ListKustomizations(ctx, client, namespace)
+	pending, err := PendingKustomizations(ctx, client, namespace)
 	if err != nil {
 		return false, nil, err
 	}
-	var notReady []string
+	names := make([]string, 0, len(pending))
+	for _, item := range pending {
+		names = append(names, item.Name)
+	}
+	return len(pending) == 0, names, nil
+}
+
+func PendingKustomizations(ctx context.Context, client dynamic.Interface, namespace string) ([]KustomizationReadiness, error) {
+	items, err := ListKustomizations(ctx, client, namespace)
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]KustomizationReadiness, 0)
 	for _, item := range items {
-		name := item.GetName()
 		ready, _ := kube.HasCondition(item, "Ready", "True")
-		if !ready {
-			notReady = append(notReady, name)
+		if ready {
+			continue
+		}
+		reason, message := readyConditionDetails(item)
+		pending = append(pending, KustomizationReadiness{
+			Name:    item.GetName(),
+			Reason:  reason,
+			Message: message,
+		})
+	}
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].Name < pending[j].Name
+	})
+	return pending, nil
+}
+
+func FormatPending(pending []KustomizationReadiness) string {
+	parts := make([]string, 0, len(pending))
+	for _, item := range pending {
+		parts = append(parts, item.summary())
+	}
+	return strings.Join(parts, ", ")
+}
+
+func FirstMissingPathFailure(pending []KustomizationReadiness) (KustomizationReadiness, bool) {
+	for _, item := range pending {
+		message := strings.ToLower(item.Message)
+		if strings.Contains(message, "kustomization path not found") || strings.Contains(message, "no such file or directory") {
+			return item, true
 		}
 	}
-	return len(notReady) == 0, notReady, nil
+	return KustomizationReadiness{}, false
 }
 
 func RequestKustomizationReconcile(ctx context.Context, client dynamic.Interface, namespace, name string, requestedAt time.Time) error {
@@ -69,13 +115,60 @@ func listOptions() metav1.ListOptions {
 	return metav1.ListOptions{}
 }
 
+func readyConditionDetails(item unstructured.Unstructured) (string, string) {
+	conditions, ok, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
+	if !ok {
+		return "", ""
+	}
+	for _, entry := range conditions {
+		condition, ok := entry.(map[string]interface{})
+		if !ok || condition["type"] != "Ready" {
+			continue
+		}
+		return conditionString(condition, "reason"), conditionString(condition, "message")
+	}
+	return "", ""
+}
+
+func conditionString(condition map[string]interface{}, key string) string {
+	value, ok := condition[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func (item KustomizationReadiness) summary() string {
+	detail := item.Reason
+	if item.Message != "" {
+		if detail != "" {
+			detail += ": "
+		}
+		detail += item.Message
+	}
+	if detail == "" {
+		return item.Name
+	}
+	return fmt.Sprintf("%s (%s)", item.Name, truncate(detail, 120))
+}
+
+func truncate(value string, maxLength int) string {
+	if len(value) <= maxLength {
+		return value
+	}
+	if maxLength <= 3 {
+		return value[:maxLength]
+	}
+	return value[:maxLength-3] + "..."
+}
+
 func KustomizationStatusSummary(ctx context.Context, client dynamic.Interface, namespace string) (string, error) {
-	ready, notReady, err := AllKustomizationsReady(ctx, client, namespace)
+	pending, err := PendingKustomizations(ctx, client, namespace)
 	if err != nil {
 		return "", err
 	}
-	if ready {
+	if len(pending) == 0 {
 		return "All Kustomizations Ready", nil
 	}
-	return fmt.Sprintf("Not Ready: %v", notReady), nil
+	return fmt.Sprintf("Not Ready: %s", FormatPending(pending)), nil
 }

@@ -87,7 +87,12 @@ The default `*.localhost` access pattern requires host port `80` to be available
 ```
 
 ## Configuration
-The CLI reads `~/.shoulders/config.yaml` by default, or another file via `--config`.
+The CLI reads `~/.shoulders/config.yaml` by default, or another file via `--config`. Use repeatable `--set key=value` flags to override file values or run from defaults without a YAML file:
+
+```bash
+./shoulders --set cluster.provider=existing --set cluster.context=kind-dev up
+./shoulders --config ./cfg.yml --set platform.profile=small up
+```
 
 Example schema:
 
@@ -123,6 +128,7 @@ Behavior:
 - When Cilium is disabled, Gateway route health is treated as externally managed and `up`/`status` do not block on a Cilium Gateway.
 - `platform.domain` remaps the public hosts together: `dex.<domain>`, `grafana.<domain>`, `headlamp.<domain>`, `reporter.<domain>`, `prometheus.<domain>`, `alertmanager.<domain>`, and `hubble.<domain>`.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let Flux reconcile the Shoulders manifests from a different repository, branch, or subdirectory.
+- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, and `platform.flux.pathPrefix`.
 - `down` deletes the local cluster for `vind`, and removes the Flux-managed Shoulders platform for `existing`.
 - `start` and `stop` are only meaningful for local vind clusters.
 

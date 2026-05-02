@@ -47,6 +47,7 @@ var (
 	kubeconfig       string
 	outputFormat     string
 	configFile       string
+	configOverrides  []string
 	loadedConfigPath string
 )
 
@@ -61,6 +62,7 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", defaultConfigPath(), "Path to config file")
+	rootCmd.PersistentFlags().StringArrayVar(&configOverrides, "set", nil, "Set a config value override (key=value), repeatable")
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", string(output.Table), "Output format: table|json|yaml")
 
 	rootCmd.AddCommand(initCmd)
@@ -92,7 +94,7 @@ func loadRuntimeConfig() error {
 	}
 	loadedConfigPath = path
 
-	cfg, err := config.Load(path)
+	cfg, err := config.LoadWithOverrides(configOverrides, path)
 	if err != nil {
 		return err
 	}

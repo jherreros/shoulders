@@ -128,13 +128,20 @@ shoulders start           # Resumes a previously stopped cluster
 
 ## Configuration
 
-The CLI reads `~/.shoulders/config.yaml` by default. Use `--config <path>` to point at a different file.
+The CLI reads `~/.shoulders/config.yaml` by default. Use `--config <path>` to point at a different file, and repeatable `--set key=value` flags to override file values or run from defaults without a YAML file.
 
 Generate a starter file with:
 
 ```bash
 shoulders init --provider vind
 shoulders init --provider existing --config ./shoulders.yaml
+```
+
+Or configure specific parameters:
+
+```bash
+shoulders --set cluster.provider=existing --set cluster.context=kind-dev up
+shoulders --config ./shoulders.yaml --set platform.profile=small up
 ```
 
 Current config fields:
@@ -168,6 +175,7 @@ Notes:
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
+- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, and `platform.flux.pathPrefix`.
 - On `provider: existing`, `shoulders down` removes the Flux-managed Shoulders platform from the current cluster. If `platform.cilium.enabled: true`, it also uninstalls the `cilium` Helm release from `kube-system`.
 
 Profile summary:
@@ -216,7 +224,7 @@ shoulders portal                        # Open Headlamp portal (prefers the conf
 shoulders reporter                      # Open Policy Reporter UI (prefers the configured gateway host; defaults to reporter.localhost)
 ```
 
-Global flags: `--config`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
+Global flags: `--config`, `--set key=value`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
 
 ## Platform Abstractions
 
