@@ -47,11 +47,27 @@ export function getDefaultCreateState(namespaceFilter: string): CreateFormState 
 			tag: 'latest',
 			replicas: '1',
 			host: '',
+			port: '80',
+			internal: false,
+			envText: '',
+		},
+		workload: {
+			type: 'worker',
+			image: 'alpine',
+			tag: 'latest',
+			replicas: '1',
+			schedule: '*/5 * * * *',
+			commandText: '',
+			argsText: '',
+			envText: '',
 		},
 		stateStore: {
 			postgresEnabled: true,
 			postgresStorage: '1Gi',
+			postgresDatabase: 'app',
+			postgresSecretName: '',
 			postgresDatabases: '',
+			postgresInitSQL: '',
 			redisEnabled: true,
 			redisReplicas: '1',
 			objectStorageEnabled: false,
@@ -80,6 +96,13 @@ export function parseListInput(value: string) {
 		.filter(Boolean);
 }
 
+export function parseKeyValueInput(value: string) {
+	return parseListInput(value).map((entry) => {
+		const [name, ...rest] = entry.split('=');
+		return { name: name.trim(), value: rest.join('=').trim() };
+	}).filter((entry) => entry.name && entry.value);
+}
+
 export function buildManifest(config: ResourceConfig, form: CreateFormState) {
 	const metadata: { name: string; namespace?: string } = { name: form.name.trim() };
 	if (config.namespaced) {
@@ -92,6 +115,8 @@ export function buildManifest(config: ResourceConfig, form: CreateFormState) {
 
 	if (config.id === 'webapplications') {
 		const replicas = Number(form.webapp.replicas);
+		const port = Number(form.webapp.port);
+		const env = parseKeyValueInput(form.webapp.envText);
 		return {
 			apiVersion: config.apiVersion,
 			kind: config.kind,
@@ -100,13 +125,40 @@ export function buildManifest(config: ResourceConfig, form: CreateFormState) {
 				image: form.webapp.image.trim(),
 				tag: form.webapp.tag.trim(),
 				replicas: Number.isFinite(replicas) ? replicas : 1,
-				host: form.webapp.host.trim(),
+				host: form.webapp.internal ? undefined : form.webapp.host.trim(),
+				port: Number.isFinite(port) ? port : 80,
+				service: { port: 80 },
+				route: form.webapp.internal ? { enabled: false } : undefined,
+				env: env.length > 0 ? env : undefined,
+			},
+		};
+	}
+
+	if (config.id === 'workloads') {
+		const replicas = Number(form.workload.replicas);
+		const env = parseKeyValueInput(form.workload.envText);
+		const command = parseListInput(form.workload.commandText);
+		const args = parseListInput(form.workload.argsText);
+		return {
+			apiVersion: config.apiVersion,
+			kind: config.kind,
+			metadata,
+			spec: {
+				type: form.workload.type,
+				image: form.workload.image.trim(),
+				tag: form.workload.tag.trim(),
+				replicas: Number.isFinite(replicas) ? replicas : 1,
+				schedule: form.workload.type === 'cronjob' ? form.workload.schedule.trim() : undefined,
+				command: command.length > 0 ? command : undefined,
+				args: args.length > 0 ? args : undefined,
+				env: env.length > 0 ? env : undefined,
 			},
 		};
 	}
 
 	if (config.id === 'statestores') {
 		const databases = parseListInput(form.stateStore.postgresDatabases);
+		const initSQL = parseListInput(form.stateStore.postgresInitSQL);
 		const redisReplicas = Number(form.stateStore.redisReplicas);
 		const buckets = parseListInput(form.stateStore.objectBuckets).map((name) => ({
 			name,
@@ -122,7 +174,10 @@ export function buildManifest(config: ResourceConfig, form: CreateFormState) {
 				postgresql: {
 					enabled: form.stateStore.postgresEnabled,
 					storage: form.stateStore.postgresStorage.trim() || '1Gi',
+					database: form.stateStore.postgresDatabase.trim() || 'app',
+					secretName: form.stateStore.postgresSecretName.trim() || undefined,
 					databases,
+					initSQL,
 				},
 				redis: {
 					enabled: form.stateStore.redisEnabled,
@@ -153,12 +208,27 @@ export function validateForm(config: ResourceConfig, form: CreateFormState) {
 		return 'Namespace is required for namespaced resources.';
 	}
 	if (config.id === 'webapplications') {
-		if (!form.webapp.image.trim() || !form.webapp.tag.trim() || !form.webapp.host.trim()) {
-			return 'Image, tag, and host are required.';
+		if (!form.webapp.image.trim() || !form.webapp.tag.trim()) {
+			return 'Image and tag are required.';
+		}
+		if (!form.webapp.internal && !form.webapp.host.trim()) {
+			return 'Host is required unless internal mode is enabled.';
 		}
 		const replicas = Number(form.webapp.replicas);
 		if (!Number.isFinite(replicas) || replicas < 1) {
 			return 'Replicas must be a positive number.';
+		}
+		const port = Number(form.webapp.port);
+		if (!Number.isFinite(port) || port < 1 || port > 65535) {
+			return 'Port must be between 1 and 65535.';
+		}
+	}
+	if (config.id === 'workloads') {
+		if (!form.workload.image.trim() || !form.workload.tag.trim()) {
+			return 'Image and tag are required.';
+		}
+		if (form.workload.type === 'cronjob' && !form.workload.schedule.trim()) {
+			return 'Schedule is required for cron jobs.';
 		}
 	}
 	if (config.id === 'statestores') {

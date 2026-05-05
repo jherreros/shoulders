@@ -9,6 +9,7 @@ import (
 	"github.com/jherreros/shoulders/shoulders-cli/internal/output"
 	"github.com/jherreros/shoulders/shoulders-cli/pkg/api/v1alpha1"
 	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -18,6 +19,10 @@ import (
 var (
 	dbType           string
 	dbTier           string
+	dbDatabase       string
+	dbDatabases      string
+	dbSecretName     string
+	dbInitSQL        []string
 	bucketName       string
 	bucketSecretName string
 	bucketRead       bool
@@ -54,14 +59,22 @@ var infraAddDbCmd = &cobra.Command{
 			return fmt.Errorf("unsupported database type: %s", dbType)
 		}
 
+		databases := []string{name}
+		if cmd.Flags().Changed("databases") {
+			databases = parseList(dbDatabases)
+		}
+
 		app := v1alpha1.StateStore{
 			TypeMeta:   v1alpha1.TypeMeta("StateStore"),
 			ObjectMeta: v1alpha1.ObjectMeta(name, namespace),
 			Spec: v1alpha1.StateStoreSpec{
 				Postgresql: &v1alpha1.PostgresSpec{
-					Enabled:   boolPtr(postgresEnabled),
-					Storage:   storage,
-					Databases: []string{name},
+					Enabled:    boolPtr(postgresEnabled),
+					Storage:    storage,
+					Database:   dbDatabase,
+					SecretName: dbSecretName,
+					Databases:  databases,
+					InitSQL:    append([]string(nil), dbInitSQL...),
 				},
 				Redis: &v1alpha1.RedisSpec{
 					Enabled:  boolPtr(redisEnabled),
@@ -244,7 +257,11 @@ var infraListCmd = &cobra.Command{
 		gvrSS := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "statestores"}
 		listSS, err := dynamicClient.Resource(gvrSS).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
 		if err != nil {
-			return err
+			if isMissingAPIResource(err) {
+				listSS = &unstructured.UnstructuredList{}
+			} else {
+				return err
+			}
 		}
 
 		listES := &unstructured.UnstructuredList{}
@@ -252,7 +269,11 @@ var infraListCmd = &cobra.Command{
 			gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
 			listES, err = dynamicClient.Resource(gvrES).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
 			if err != nil {
-				return err
+				if isMissingAPIResource(err) {
+					listES = &unstructured.UnstructuredList{}
+				} else {
+					return err
+				}
 			}
 		}
 
@@ -300,7 +321,7 @@ var infraDeleteCmd = &cobra.Command{
 		if err == nil {
 			fmt.Printf("StateStore %s deleted\n", name)
 			deleted = true
-		} else if !strings.Contains(err.Error(), "not found") {
+		} else if !isMissingAPIResource(err) {
 			errs = append(errs, err)
 		}
 
@@ -310,7 +331,7 @@ var infraDeleteCmd = &cobra.Command{
 			if err == nil {
 				fmt.Printf("EventStream %s deleted\n", name)
 				deleted = true
-			} else if !strings.Contains(err.Error(), "not found") {
+			} else if !isMissingAPIResource(err) {
 				errs = append(errs, err)
 			}
 		}
@@ -353,6 +374,34 @@ func parseConfig(entries []string) (map[string]interface{}, error) {
 	return config, nil
 }
 
+func parseList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(value, func(separator rune) bool {
+		return separator == ',' || separator == '\n'
+	})
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		clean := strings.TrimSpace(part)
+		if clean != "" {
+			items = append(items, clean)
+		}
+	}
+	return items
+}
+
+func isMissingAPIResource(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+	message := err.Error()
+	return strings.Contains(message, "the server could not find the requested resource") || strings.Contains(message, "no matches for kind")
+}
+
 func init() {
 	infraCmd.AddCommand(infraAddDbCmd)
 	infraCmd.AddCommand(infraAddBucketCmd)
@@ -362,6 +411,10 @@ func init() {
 
 	infraAddDbCmd.Flags().StringVar(&dbType, "type", "postgres", "Database type: postgres|redis")
 	infraAddDbCmd.Flags().StringVar(&dbTier, "tier", "dev", "Database tier: dev|prod")
+	infraAddDbCmd.Flags().StringVar(&dbDatabase, "database", "app", "Bootstrap PostgreSQL database name")
+	infraAddDbCmd.Flags().StringVar(&dbDatabases, "databases", "", "Additional PostgreSQL databases, comma or newline separated")
+	infraAddDbCmd.Flags().StringVar(&dbSecretName, "secret", "", "PostgreSQL credentials Secret name (defaults to <name>-app-secret)")
+	infraAddDbCmd.Flags().StringArrayVar(&dbInitSQL, "init-sql", nil, "SQL statement to run during PostgreSQL bootstrap, repeatable")
 	infraAddBucketCmd.Flags().StringVar(&bucketName, "bucket", "", "Bucket name (defaults to resource name)")
 	infraAddBucketCmd.Flags().StringVar(&bucketSecretName, "secret", "", "Secret name for S3 credentials (defaults to <bucket>-s3)")
 	infraAddBucketCmd.Flags().BoolVar(&bucketRead, "read", true, "Grant read access to the generated key")

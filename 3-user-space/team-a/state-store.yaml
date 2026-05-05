@@ -5,9 +5,13 @@ metadata:
   namespace: team-a
 spec:
   postgresql:
+    database: app
+    secretName: team-a-db-app-secret
     databases:
       - team-a-01
       - team-a-02
+    initSQL:
+      - CREATE EXTENSION IF NOT EXISTS pgcrypto;
   redis:
     enabled: true
     replicas: 1

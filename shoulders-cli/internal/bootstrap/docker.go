@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/containerd/errdefs"
@@ -15,6 +17,54 @@ import (
 // environment (DOCKER_HOST, DOCKER_API_VERSION, etc.).
 func dockerClient() (*client.Client, error) {
 	return client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+}
+
+func BuildLocalImage(ctx context.Context, image, contextPath string) error {
+	cmd := exec.CommandContext(ctx, "docker", "build", "-t", image, contextPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func LoadImageIntoVindCluster(ctx context.Context, clusterName, image string) error {
+	containers, err := vindContainerNames(ctx, clusterName)
+	if err != nil {
+		return err
+	}
+	for _, containerName := range containers {
+		if err := importImageIntoContainer(ctx, containerName, image); err != nil {
+			return fmt.Errorf("load image into %s: %w", containerName, err)
+		}
+	}
+	return nil
+}
+
+func importImageIntoContainer(ctx context.Context, containerName, image string) error {
+	saveCmd := exec.CommandContext(ctx, "docker", "save", image)
+	importCmd := exec.CommandContext(ctx, "docker", "exec", "-i", containerName, "ctr", "-n", "k8s.io", "images", "import", "-")
+
+	pipe, err := saveCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	saveCmd.Stderr = os.Stderr
+	importCmd.Stdin = pipe
+	importCmd.Stdout = os.Stdout
+	importCmd.Stderr = os.Stderr
+
+	if err := importCmd.Start(); err != nil {
+		return err
+	}
+	if err := saveCmd.Start(); err != nil {
+		_ = importCmd.Process.Kill()
+		return err
+	}
+	saveErr := saveCmd.Wait()
+	importErr := importCmd.Wait()
+	if saveErr != nil {
+		return saveErr
+	}
+	return importErr
 }
 
 // containerExists checks whether a Docker container with the given name exists.

@@ -31,6 +31,7 @@ describe('portalUtils', () => {
 			tag: '1.27',
 			replicas: 3,
 			host: 'demo.local',
+			port: 80,
 		});
 	});
 
@@ -41,7 +42,28 @@ describe('portalUtils', () => {
 		form.name = 'demo';
 		form.webapp.image = '';
 
-		expect(validateForm(config!, form)).toBe('Image, tag, and host are required.');
+		expect(validateForm(config!, form)).toBe('Image and tag are required.');
+	});
+
+	it('builds workload manifest', () => {
+		const config = resourceConfigs.find((item) => item.id === 'workloads');
+		expect(config).toBeDefined();
+		const form = getDefaultCreateState('team-a');
+		form.name = 'team-a-worker';
+		form.workload.type = 'job';
+		form.workload.image = 'alpine';
+		form.workload.tag = '3.20';
+		form.workload.argsText = 'echo,ok';
+
+		const manifest = buildManifest(config!, form) as Record<string, any>;
+
+		expect(manifest.metadata).toEqual({ name: 'team-a-worker', namespace: 'team-a' });
+		expect(manifest.spec).toMatchObject({
+			type: 'job',
+			image: 'alpine',
+			tag: '3.20',
+			args: ['echo', 'ok'],
+		});
 	});
 
 	it('builds namespaced create path', () => {

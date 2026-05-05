@@ -27,3 +27,10 @@ func TestParseConfigInvalid(t *testing.T) {
 		t.Fatalf("expected error for invalid entry")
 	}
 }
+
+func TestParseList(t *testing.T) {
+	items := parseList("app, ledger\naccounts")
+	if len(items) != 3 || items[0] != "app" || items[2] != "accounts" {
+		t.Fatalf("unexpected list parse result: %#v", items)
+	}
+}

@@ -1,0 +1,248 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: workload-composition
+  labels:
+    crossplane.io/xrd: workloads.shoulders.io
+spec:
+  compositeTypeRef:
+    apiVersion: shoulders.io/v1alpha1
+    kind: Workload
+  mode: Pipeline
+  pipeline:
+    - step: go-templating
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $namespace := $xr.metadata.namespace -}}
+            {{- $spec := $xr.spec -}}
+            {{- $workloadType := ($spec.type | default "worker") -}}
+            {{- $replicas := 1 -}}
+            {{- if hasKey $spec "replicas" -}}
+            {{- $replicas = $spec.replicas -}}
+            {{- end -}}
+            {{ if eq $workloadType "worker" }}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "worker-deployment"
+                {{ if eq (int $replicas) 0 }}
+                gotemplating.fn.crossplane.io/ready: "True"
+                {{ end }}
+              name: {{ $name | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/workload: {{ $name | quote }}
+                shoulders.io/workload-type: worker
+            spec:
+              replicas: {{ $replicas }}
+              selector:
+                matchLabels:
+                  app: {{ $name | quote }}
+              template:
+                metadata:
+                  labels:
+                    app: {{ $name | quote }}
+                    shoulders.io/workload: {{ $name | quote }}
+                    shoulders.io/workload-type: worker
+                spec:
+                  {{ with $spec.serviceAccountName }}
+                  serviceAccountName: {{ . | quote }}
+                  {{ end }}
+                  {{ with $spec.podSecurityContext }}
+                  securityContext:
+                        {{ toYaml . | nindent 20 }}
+                  {{ end }}
+                  containers:
+                    - name: app
+                      image: {{ printf "%s:%s" $spec.image $spec.tag | quote }}
+                      {{ with $spec.imagePullPolicy }}
+                      imagePullPolicy: {{ . | quote }}
+                      {{ end }}
+                      {{ with $spec.command }}
+                      command:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.args }}
+                      args:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.env }}
+                      env:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.envFrom }}
+                      envFrom:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.resources }}
+                      resources:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.securityContext }}
+                      securityContext:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.volumeMounts }}
+                      volumeMounts:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                  {{ with $spec.volumes }}
+                  volumes:
+                        {{ toYaml . | nindent 20 }}
+                  {{ end }}
+                {{ else if eq $workloadType "cronjob" }}
+            ---
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "cronjob"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $name | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/workload: {{ $name | quote }}
+                shoulders.io/workload-type: cronjob
+            spec:
+              schedule: {{ $spec.schedule | quote }}
+              concurrencyPolicy: {{ $spec.concurrencyPolicy | default "Forbid" | quote }}
+              jobTemplate:
+                spec:
+                  backoffLimit: {{ $spec.backoffLimit | default 6 }}
+                  template:
+                    metadata:
+                      labels:
+                        app: {{ $name | quote }}
+                        shoulders.io/workload: {{ $name | quote }}
+                        shoulders.io/workload-type: cronjob
+                    spec:
+                      restartPolicy: {{ $spec.restartPolicy | default "OnFailure" | quote }}
+                      {{ with $spec.serviceAccountName }}
+                      serviceAccountName: {{ . | quote }}
+                      {{ end }}
+                      {{ with $spec.podSecurityContext }}
+                      securityContext:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      containers:
+                        - name: app
+                          image: {{ printf "%s:%s" $spec.image $spec.tag | quote }}
+                          {{ with $spec.imagePullPolicy }}
+                          imagePullPolicy: {{ . | quote }}
+                          {{ end }}
+                          {{ with $spec.command }}
+                          command:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                          {{ with $spec.args }}
+                          args:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                          {{ with $spec.env }}
+                          env:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                          {{ with $spec.envFrom }}
+                          envFrom:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                          {{ with $spec.resources }}
+                          resources:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                          {{ with $spec.securityContext }}
+                          securityContext:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                          {{ with $spec.volumeMounts }}
+                          volumeMounts:
+            {{ toYaml . | nindent 28 }}
+                          {{ end }}
+                      {{ with $spec.volumes }}
+                      volumes:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+            {{ else }}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "job"
+              name: {{ $name | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/workload: {{ $name | quote }}
+                shoulders.io/workload-type: job
+            spec:
+              backoffLimit: {{ $spec.backoffLimit | default 6 }}
+              template:
+                metadata:
+                  labels:
+                    app: {{ $name | quote }}
+                    shoulders.io/workload: {{ $name | quote }}
+                    shoulders.io/workload-type: job
+                spec:
+                  restartPolicy: {{ $spec.restartPolicy | default "OnFailure" | quote }}
+                  {{ with $spec.serviceAccountName }}
+                  serviceAccountName: {{ . | quote }}
+                  {{ end }}
+                  {{ with $spec.podSecurityContext }}
+                  securityContext:
+                        {{ toYaml . | nindent 20 }}
+                  {{ end }}
+                  containers:
+                    - name: app
+                      image: {{ printf "%s:%s" $spec.image $spec.tag | quote }}
+                      {{ with $spec.imagePullPolicy }}
+                      imagePullPolicy: {{ . | quote }}
+                      {{ end }}
+                      {{ with $spec.command }}
+                      command:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.args }}
+                      args:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.env }}
+                      env:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.envFrom }}
+                      envFrom:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.resources }}
+                      resources:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.securityContext }}
+                      securityContext:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.volumeMounts }}
+                      volumeMounts:
+            {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                  {{ with $spec.volumes }}
+                  volumes:
+                        {{ toYaml . | nindent 20 }}
+                  {{ end }}
+                {{ end }}
+    - step: auto-ready
+      functionRef:
+        name: function-auto-ready

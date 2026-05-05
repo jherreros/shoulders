@@ -52,6 +52,16 @@ interface DeployAppArgs {
   replicas?: number;
   host?: string;
   port?: number;
+  servicePort?: number;
+  internal?: boolean;
+  env?: Record<string, string>;
+  envFromConfigMaps?: string[];
+  envFromSecrets?: string[];
+  readinessPath?: string;
+  livenessPath?: string;
+  startupPath?: string;
+  resources?: Record<string, unknown>;
+  securityContext?: Record<string, unknown>;
 }
 
 interface AppStatusArgs {
@@ -84,6 +94,36 @@ interface AddDatabaseArgs {
   namespace: string;
   type?: "postgres" | "postgresql" | "redis";
   tier?: "dev" | "prod";
+  database?: string;
+  databases?: string[];
+  secretName?: string;
+  initSQL?: string[];
+}
+
+interface DeployWorkloadArgs {
+  name: string;
+  namespace: string;
+  type?: "worker" | "job" | "cronjob";
+  image: string;
+  tag?: string;
+  replicas?: number;
+  schedule?: string;
+  command?: string[];
+  args?: string[];
+  env?: Record<string, string>;
+  envFromConfigMaps?: string[];
+  envFromSecrets?: string[];
+  resources?: Record<string, unknown>;
+  securityContext?: Record<string, unknown>;
+}
+
+interface WorkloadListArgs {
+  namespace?: string;
+}
+
+interface WorkloadDeleteArgs {
+  name: string;
+  namespace: string;
 }
 
 interface AddBucketArgs {
@@ -146,6 +186,11 @@ const resourceIndex: Record<string, { path: string; name: string; description: s
     name: "StateStore Schema",
     description: "Crossplane XRD for StateStores"
   },
+  "shoulders://schemas/workload": {
+    path: path.join(repoRoot, "2-addons", "manifests", "crossplane", "definitions", "workload-xrd.yaml"),
+    name: "Workload Schema",
+    description: "Crossplane XRD for workers, Jobs, and CronJobs"
+  },
   "shoulders://schemas/event-stream": {
     path: path.join(repoRoot, "2-addons", "manifests", "crossplane", "definitions", "event-stream-xrd.yaml"),
     name: "EventStream Schema",
@@ -165,6 +210,11 @@ const resourceIndex: Record<string, { path: string; name: string; description: s
     path: path.join(repoRoot, "3-user-space", "team-a", "state-store.yaml"),
     name: "StateStore Example",
     description: "Sample StateStore manifest"
+  },
+  "shoulders://examples/workload": {
+    path: path.join(repoRoot, "3-user-space", "team-a", "workload.yaml"),
+    name: "Workload Example",
+    description: "Sample Workload manifest"
   },
   "shoulders://examples/event-stream": {
     path: path.join(repoRoot, "3-user-space", "team-a", "event-stream.yaml"),
@@ -250,7 +300,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             tag: { type: "string", description: "Image tag (overrides tag in image)" },
             replicas: { type: "number", description: "Replica count" },
             host: { type: "string", description: "Hostname for routing" },
-            port: { type: "number", description: "Service port" }
+            port: { type: "number", description: "Container port" },
+            servicePort: { type: "number", description: "Kubernetes Service port" },
+            internal: { type: "boolean", description: "Disable public HTTPRoute and create an internal Service only" },
+            env: { type: "object", additionalProperties: { type: "string" }, description: "Environment variables" },
+            envFromConfigMaps: { type: "array", items: { type: "string" }, description: "ConfigMaps to expose through envFrom" },
+            envFromSecrets: { type: "array", items: { type: "string" }, description: "Secrets to expose through envFrom" },
+            readinessPath: { type: "string", description: "HTTP readiness probe path" },
+            livenessPath: { type: "string", description: "HTTP liveness probe path" },
+            startupPath: { type: "string", description: "HTTP startup probe path" },
+            resources: { type: "object", description: "Kubernetes container resources" },
+            securityContext: { type: "object", description: "Kubernetes container securityContext" }
           },
           required: ["name", "namespace", "image"]
         }
@@ -290,6 +350,52 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "deploy_workload",
+        description: "Deploy a background worker, one-shot Job, or CronJob",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Workload name" },
+            namespace: { type: "string", description: "Workspace namespace" },
+            type: { type: "string", enum: ["worker", "job", "cronjob"], description: "Workload type" },
+            image: { type: "string", description: "Container image" },
+            tag: { type: "string", description: "Image tag" },
+            replicas: { type: "number", description: "Worker replica count" },
+            schedule: { type: "string", description: "Cron schedule for cronjob workloads" },
+            command: { type: "array", items: { type: "string" }, description: "Container command" },
+            args: { type: "array", items: { type: "string" }, description: "Container args" },
+            env: { type: "object", additionalProperties: { type: "string" }, description: "Environment variables" },
+            envFromConfigMaps: { type: "array", items: { type: "string" }, description: "ConfigMaps to expose through envFrom" },
+            envFromSecrets: { type: "array", items: { type: "string" }, description: "Secrets to expose through envFrom" },
+            resources: { type: "object", description: "Kubernetes container resources" },
+            securityContext: { type: "object", description: "Kubernetes container securityContext" }
+          },
+          required: ["name", "namespace", "image"]
+        }
+      },
+      {
+        name: "list_workloads",
+        description: "List Workloads in a workspace",
+        inputSchema: {
+          type: "object",
+          properties: {
+            namespace: { type: "string", description: "Workspace namespace (optional if a current workspace is set)" }
+          }
+        }
+      },
+      {
+        name: "delete_workload",
+        description: "Delete a Workload",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Workload name" },
+            namespace: { type: "string", description: "Workspace namespace" }
+          },
+          required: ["name", "namespace"]
+        }
+      },
+      {
         name: "add_database",
         description: "Provision a StateStore",
         inputSchema: {
@@ -298,7 +404,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             name: { type: "string", description: "StateStore name" },
             namespace: { type: "string", description: "Workspace namespace" },
             type: { type: "string", enum: ["postgres", "postgresql", "redis"], description: "Database type" },
-            tier: { type: "string", enum: ["dev", "prod"], description: "Database tier" }
+            tier: { type: "string", enum: ["dev", "prod"], description: "Database tier" },
+            database: { type: "string", description: "Bootstrap PostgreSQL database name" },
+            databases: { type: "array", items: { type: "string" }, description: "Additional PostgreSQL databases" },
+            secretName: { type: "string", description: "PostgreSQL credentials Secret name" },
+            initSQL: { type: "array", items: { type: "string" }, description: "PostgreSQL bootstrap SQL statements" }
           },
           required: ["name", "namespace"]
         }
@@ -436,6 +546,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await getAppStatus(args as unknown as AppStatusArgs);
       case "delete_app":
         return await deleteApp(args as unknown as AppDeleteArgs);
+      case "deploy_workload":
+        return await deployWorkload(args as unknown as DeployWorkloadArgs);
+      case "list_workloads":
+        return await listWorkloads(args as unknown as WorkloadListArgs);
+      case "delete_workload":
+        return await deleteWorkload(args as unknown as WorkloadDeleteArgs);
       case "add_database":
         return await addDatabase(args as unknown as AddDatabaseArgs);
       case "add_bucket":
@@ -557,24 +673,34 @@ async function deployApp(args: DeployAppArgs) {
 
   const { image, tag } = parseImageTag(args.image, args.tag);
   const replicas = typeof args.replicas === "number" ? args.replicas : 1;
-  const host = args.host && args.host.trim().length > 0 ? args.host : `${args.name}.local`;
+  const internal = args.internal ?? false;
+  const host = internal ? undefined : args.host && args.host.trim().length > 0 ? args.host : `${args.name}.local`;
   const port = typeof args.port === "number" ? args.port : 80;
-  const annotations = port > 0 ? { "shoulders.io/port": String(port) } : undefined;
+  const servicePort = typeof args.servicePort === "number" ? args.servicePort : 80;
 
   const body = {
     apiVersion: `${shouldersGroup}/${shouldersVersion}`,
     kind: "WebApplication",
     metadata: {
       name: args.name,
-      namespace: args.namespace,
-      annotations
+      namespace: args.namespace
     },
-    spec: {
+    spec: compactObject({
       image,
       tag,
       replicas,
-      host
-    }
+      host,
+      port,
+      service: { port: servicePort },
+      route: internal ? { enabled: false } : undefined,
+      env: envObjectToList(args.env),
+      envFrom: buildEnvFrom(args.envFromConfigMaps, args.envFromSecrets),
+      readinessProbe: buildHttpProbe(args.readinessPath, port),
+      livenessProbe: buildHttpProbe(args.livenessPath, port),
+      startupProbe: buildHttpProbe(args.startupPath, port),
+      resources: args.resources,
+      securityContext: args.securityContext
+    })
   };
 
   const result = await applyNamespacedCustomObject("webapplications", args.namespace, body);
@@ -643,7 +769,10 @@ async function addDatabase(args: AddDatabaseArgs) {
       postgresql: {
         enabled: postgresEnabled,
         storage,
-        databases: [args.name]
+        database: args.database ?? "app",
+        secretName: args.secretName,
+        databases: args.databases ?? [args.name],
+        initSQL: args.initSQL
       },
       redis: {
         enabled: redisEnabled,
@@ -654,6 +783,60 @@ async function addDatabase(args: AddDatabaseArgs) {
 
   const result = await applyNamespacedCustomObject("statestores", args.namespace, body);
   return ok("Infrastructure created", result.body, { source: "kubernetes", action: result.action });
+}
+
+async function deployWorkload(args: DeployWorkloadArgs) {
+  validateK8sName(args.name, "workload name");
+  validateK8sName(args.namespace, "namespace");
+  validateImage(args.image);
+
+  const { image, tag } = parseImageTag(args.image, args.tag);
+  const workloadType = args.type ?? "worker";
+  if (workloadType === "cronjob" && (!args.schedule || args.schedule.trim().length === 0)) {
+    throw new ValidationError("schedule is required for cronjob workloads");
+  }
+
+  const body = {
+    apiVersion: `${shouldersGroup}/${shouldersVersion}`,
+    kind: "Workload",
+    metadata: { name: args.name, namespace: args.namespace },
+    spec: compactObject({
+      type: workloadType,
+      image,
+      tag,
+      replicas: args.replicas ?? 1,
+      schedule: args.schedule,
+      command: args.command,
+      args: args.args,
+      env: envObjectToList(args.env),
+      envFrom: buildEnvFrom(args.envFromConfigMaps, args.envFromSecrets),
+      resources: args.resources,
+      securityContext: args.securityContext
+    })
+  };
+
+  const result = await applyNamespacedCustomObject("workloads", args.namespace, body);
+  return ok("Workload deployed", result.body, { source: "kubernetes", action: result.action });
+}
+
+async function listWorkloads(args: WorkloadListArgs) {
+  const namespace = await resolveNamespace(args.namespace);
+  const items = await listNamespacedCustomObjects("workloads", namespace);
+  return ok("Workloads listed", items, { source: "kubernetes", namespace });
+}
+
+async function deleteWorkload(args: WorkloadDeleteArgs) {
+  validateK8sName(args.name, "workload name");
+  validateK8sName(args.namespace, "namespace");
+  const { customObjects } = buildKubeClients();
+  await customObjects.deleteNamespacedCustomObject({
+    group: shouldersGroup,
+    version: shouldersVersion,
+    namespace: args.namespace,
+    plural: "workloads",
+    name: args.name
+  });
+  return ok("Workload deleted", args.name, { source: "kubernetes" });
 }
 
 async function addBucket(args: AddBucketArgs) {
@@ -739,25 +922,11 @@ async function addStream(args: AddStreamArgs) {
 
 async function listInfra(args: InfraListArgs) {
   const namespace = await resolveNamespace(args.namespace);
-  const { customObjects } = buildKubeClients();
   const [stores, streams] = await Promise.all([
-    customObjects.listNamespacedCustomObject({
-      group: shouldersGroup,
-      version: shouldersVersion,
-      namespace,
-      plural: "statestores"
-    }),
-    customObjects.listNamespacedCustomObject({
-      group: shouldersGroup,
-      version: shouldersVersion,
-      namespace,
-      plural: "eventstreams"
-    })
+    listNamespacedCustomObjects("statestores", namespace),
+    listNamespacedCustomObjects("eventstreams", namespace)
   ]);
-  const items = [
-    ...((stores as { items?: unknown[] }).items ?? []),
-    ...((streams as { items?: unknown[] }).items ?? [])
-  ];
+  const items = [...stores, ...streams];
   return ok("Infrastructure listed", items, { source: "kubernetes", namespace });
 }
 
@@ -1009,11 +1178,52 @@ function parseImageTag(image: string, overrideTag?: string) {
   if (overrideTag && overrideTag.trim().length > 0) {
     return { image, tag: overrideTag };
   }
-  const parts = image.split(":");
-  if (parts.length === 2) {
-    return { image: parts[0], tag: parts[1] };
+  const lastSlash = image.lastIndexOf("/");
+  const lastColon = image.lastIndexOf(":");
+  if (lastColon > lastSlash) {
+    return { image: image.slice(0, lastColon), tag: image.slice(lastColon + 1) };
   }
   return { image, tag: "latest" };
+}
+
+function envObjectToList(env?: Record<string, string>) {
+  if (!env || Object.keys(env).length === 0) return undefined;
+  return Object.entries(env).map(([name, value]) => ({ name, value }));
+}
+
+function buildEnvFrom(configMaps?: string[], secrets?: string[]) {
+  const envFrom: Array<Record<string, unknown>> = [];
+  for (const name of configMaps ?? []) {
+    const clean = name.trim();
+    if (clean) envFrom.push({ configMapRef: { name: clean } });
+  }
+  for (const name of secrets ?? []) {
+    const clean = name.trim();
+    if (clean) envFrom.push({ secretRef: { name: clean } });
+  }
+  return envFrom.length > 0 ? envFrom : undefined;
+}
+
+function buildHttpProbe(pathname: string | undefined, port: number) {
+  if (!pathname || pathname.trim().length === 0) return undefined;
+  return {
+    httpGet: { path: pathname.trim(), port },
+    initialDelaySeconds: 5,
+    periodSeconds: 10
+  };
+}
+
+function compactObject(input: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => {
+      if (value === undefined || value === null) return false;
+      if (Array.isArray(value) && value.length === 0) return false;
+      if (typeof value === "object" && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) {
+        return false;
+      }
+      return true;
+    })
+  );
 }
 
 function hasCondition(item: Record<string, unknown>, type: string, expected: string): boolean {
@@ -1067,6 +1277,24 @@ async function applyNamespacedCustomObject(
       body
     });
     return { action: "created", body: result };
+  }
+}
+
+async function listNamespacedCustomObjects(plural: string, namespace: string): Promise<unknown[]> {
+  const { customObjects } = buildKubeClients();
+  try {
+    const result = await customObjects.listNamespacedCustomObject({
+      group: shouldersGroup,
+      version: shouldersVersion,
+      namespace,
+      plural
+    });
+    return (result as { items?: unknown[] }).items ?? [];
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return [];
+    }
+    throw error;
   }
 }
 

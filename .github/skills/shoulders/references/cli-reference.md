@@ -40,6 +40,10 @@ Deploy containerized HTTP services. **Namespace-scoped** — uses the active wor
 
 ```bash
 shoulders app init <name> --image <image> [flags]   # Deploy app
+shoulders app update <name> [flags]                  # Update app fields
+shoulders app apply -f webapp.yaml                   # Apply an app manifest
+shoulders app build-image <image> [context]          # Docker build and load into local vind nodes
+shoulders app load-image <image>                     # Load existing local Docker image into local vind nodes
 shoulders app list                                   # List apps
 shoulders app describe <name>                        # Show full details
 shoulders app delete <name>                          # Delete app
@@ -54,6 +58,15 @@ shoulders app delete <name>                          # Delete app
 | `--host` | `<name>.local` | Hostname for HTTP routing |
 | `--replicas` | `1` | Number of pod replicas |
 | `--port` | `80` | Container port |
+| `--service-port` | `80` | Kubernetes Service port |
+| `--internal` | `false` | Create an internal Service without an HTTPRoute |
+| `--env` | — | Repeatable `KEY=VALUE` environment variable |
+| `--env-from-configmap` / `--env-from-secret` | — | Repeatable envFrom bindings |
+| `--secret-mount` | — | Repeatable Secret mount (`secretName:mountPath[:volumeName]`) |
+| `--empty-dir` | — | Repeatable writable emptyDir mount (`name:mountPath`) |
+| `--readiness-path`, `--liveness-path`, `--startup-path` | — | HTTP probe paths |
+| `--cpu-request`, `--memory-request`, `--cpu-limit`, `--memory-limit` | — | Container resources |
+| `--read-only-root-filesystem`, `--run-as-non-root`, `--run-as-user` | — | Container security context |
 | `-n` | active workspace | Target namespace |
 | `--dry-run` | `false` | Print YAML without applying |
 
@@ -61,6 +74,23 @@ An app creates:
 - A Kubernetes Deployment with the specified image
 - A Service on port 80
 - An HTTPRoute (Gateway API) routing traffic for the hostname
+
+Use `--internal` for backend-only services. For fields not covered by flags, edit YAML and run `shoulders app apply -f webapp.yaml`.
+
+## Workloads: Workers and Jobs
+
+Run non-HTTP work as first-class Shoulders resources. **Namespace-scoped.**
+
+```bash
+shoulders workload worker <name> --image <image> [--replicas n]
+shoulders workload job <name> --image <image> [--command cmd] [--arg value]
+shoulders workload cron <name> --image <image> --schedule "*/5 * * * *"
+shoulders workload list
+shoulders workload describe <name>
+shoulders workload delete <name>
+```
+
+Workload create commands support `--env`, `--env-from-configmap`, `--env-from-secret`, resource flags, and security-context flags.
 
 ## Infrastructure: Databases, Caches & Object Buckets
 
@@ -79,11 +109,17 @@ shoulders infra delete <name>             # Delete infra resource
 |------|---------|-------------|
 | `--type` | `postgres` | `postgres` or `redis` |
 | `--tier` | `dev` | `dev` (1Gi storage) or `prod` (10Gi storage) |
+| `--database` | `app` | Bootstrap PostgreSQL database name |
+| `--databases` | `<name>` | Additional PostgreSQL databases, comma or newline separated |
+| `--secret` | `<name>-app-secret` | PostgreSQL credentials Secret name |
+| `--init-sql` | — | Repeatable PostgreSQL bootstrap SQL statement |
 | `-n` | active workspace | Target namespace |
 
 A PostgreSQL StateStore creates:
-- A CloudNativePG cluster (2 instances)
-- An `app-secret` Secret with database credentials
+- A CloudNativePG cluster (profile-sized instances)
+- A Secret named `<name>-app-secret` by default with `username` and `password` keys
+- A read/write Service named `<name>-rw`; use that host with `postgresql.database` (default `app`) for app bindings
+- Extra databases owned by the app user so schema creation can run without privileged follow-up SQL
 
 A Redis StateStore creates:
 - A Redis Deployment and Service

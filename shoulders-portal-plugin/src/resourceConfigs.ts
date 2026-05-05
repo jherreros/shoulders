@@ -22,6 +22,16 @@ export const resourceConfigs: ResourceConfig[] = [
 		namespaced: true,
 	},
 	{
+		id: 'workloads',
+		label: 'Workloads',
+		description: 'Background workers, one-shot jobs, and scheduled jobs.',
+		path: '/apis/shoulders.io/v1alpha1/workloads',
+		plural: 'workloads',
+		apiVersion: 'shoulders.io/v1alpha1',
+		kind: 'Workload',
+		namespaced: true,
+	},
+	{
 		id: 'statestores',
 		label: 'State Stores',
 		description: 'PostgreSQL, Redis, and Garage object buckets for teams.',

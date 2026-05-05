@@ -15,6 +15,9 @@ If your agent has the Shoulders MCP server configured, you can use it as an alte
 | `list_apps` | `shoulders app list` |
 | `get_app_status` | `shoulders app describe` |
 | `delete_app` | `shoulders app delete` |
+| `deploy_workload` | `shoulders workload worker/job/cron` |
+| `list_workloads` | `shoulders workload list` |
+| `delete_workload` | `shoulders workload delete` |
 | `add_database` | `shoulders infra add-db` |
 | `add_bucket` | `shoulders infra add-bucket` |
 | `add_stream` | `shoulders infra add-stream` |

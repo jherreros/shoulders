@@ -44,13 +44,18 @@ node dist/server.js
 - `delete_workspace`: Delete a workspace.
 
 **Applications**
-- `deploy_app`: Create a WebApplication.
+- `deploy_app`: Create or update a WebApplication, including internal service mode, env/envFrom, HTTP probes, resources, and security context.
 - `list_apps`: List WebApplications.
 - `get_app_status`: Fetch a WebApplication manifest.
 - `delete_app`: Delete a WebApplication.
 
+**Workloads**
+- `deploy_workload`: Create or update a worker, one-shot Job, or CronJob.
+- `list_workloads`: List Workloads.
+- `delete_workload`: Delete a Workload.
+
 **Infrastructure**
-- `add_database`: Create a StateStore.
+- `add_database`: Create a StateStore with PostgreSQL database, extra databases, Secret, and init SQL options.
 - `add_bucket`: Create a Garage S3 bucket through a StateStore.
 - `add_stream`: Create an EventStream.
 - `list_infra`: List StateStore/EventStream resources.
@@ -71,10 +76,12 @@ The server exposes Crossplane schemas and example manifests as MCP resources:
 
 - `shoulders://schemas/workspace`
 - `shoulders://schemas/webapplication`
+- `shoulders://schemas/workload`
 - `shoulders://schemas/state-store`
 - `shoulders://schemas/event-stream`
 - `shoulders://examples/workspace`
 - `shoulders://examples/webapplication`
+- `shoulders://examples/workload`
 - `shoulders://examples/state-store`
 - `shoulders://examples/event-stream`
 

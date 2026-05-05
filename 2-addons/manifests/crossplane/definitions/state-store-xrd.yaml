@@ -28,7 +28,22 @@ spec:
                     storage:
                       type: string
                       default: 1Gi
+                    database:
+                      type: string
+                      default: app
+                    secretName:
+                      type: string
+                    username:
+                      type: string
+                      default: app
+                    password:
+                      type: string
+                      default: password
                     databases:
+                      type: array
+                      items:
+                        type: string
+                    initSQL:
                       type: array
                       items:
                         type: string

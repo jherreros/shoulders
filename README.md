@@ -16,6 +16,7 @@ Shoulders allows developers to declaratively provision and manage:
 
 - **Workspaces** — Isolated tenant environments with network policies and naming conventions.
 - **Web Applications** — Containerized applications with Deployments, Services, and Gateway API routing.
+- **Workloads** — Background workers, one-shot Jobs, and CronJobs for non-HTTP work.
 - **State Stores** — PostgreSQL databases (via CloudNativePG), Redis caches, and Garage S3 buckets with independent toggles.
 - **Event Streams** — Full Kafka clusters and multiple topics (via Strimzi).
 - **Observability** — Built-in LGTM stack (Loki, Grafana, Tempo, Prometheus) for comprehensive monitoring.
@@ -205,9 +206,18 @@ shoulders workspace current             # Show the active workspace
 shoulders workspace delete <name>       # Delete a Workspace
 
 shoulders app init <name> --image <img> # Deploy a WebApplication
+shoulders app update <name>             # Update image, scaling, routing, env, probes, resources, or security flags
+shoulders app apply -f app.yaml         # Apply a manifest, defaulting namespace from the active workspace
+shoulders app build-image <img> [ctx]   # Docker build and load the image into local vind nodes
+shoulders app load-image <img>          # Load an existing local image into local vind nodes
 shoulders app list                      # List WebApplications
 shoulders app describe <name>           # Show WebApplication details
 shoulders app delete <name>             # Delete a WebApplication
+
+shoulders workload worker <name>        # Deploy a background Deployment
+shoulders workload job <name>           # Deploy a one-shot Job
+shoulders workload cron <name>          # Deploy a CronJob (--schedule required)
+shoulders workload list                 # List Workloads
 
 shoulders infra add-db <name>           # Create a StateStore (--type postgres|redis, --tier dev|prod)
 shoulders infra add-bucket <name>       # Create a Garage S3 bucket StateStore (--bucket, --secret)
@@ -260,6 +270,20 @@ spec:
   tag: latest
   replicas: 2
   host: my-app.example.com
+  port: 8080
+  env:
+    - name: LOG_LEVEL
+      value: info
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  securityContext:
+    runAsNonRoot: true
 ```
 
 | Field | Type | Required | Description |
@@ -267,12 +291,50 @@ spec:
 | `image` | string | yes | Container image |
 | `tag` | string | yes | Image tag |
 | `replicas` | integer | yes | Number of pod replicas |
-| `host` | string | yes | Hostname for Gateway API routing |
+| `host` | string | no | Hostname for Gateway API routing. Omit when `route.enabled: false` for internal-only services. |
+| `port` | integer | `80` | Container port targeted by the Service |
+| `service.port` | integer | `80` | Kubernetes Service port |
+| `route.enabled` | boolean | `true` | Create the public HTTPRoute when a host is set |
+| `env` / `envFrom` | array | — | Kubernetes-style environment variables and ConfigMap/Secret bindings |
+| `volumes` / `volumeMounts` | array | — | Kubernetes-style volumes, including Secret and `emptyDir` mounts |
+| `readinessProbe`, `livenessProbe`, `startupProbe` | object | — | Kubernetes container probes |
+| `resources` | object | — | Container requests and limits |
+| `podSecurityContext`, `securityContext` | object | — | Pod and container security settings |
 
 This provisions:
 - A Kubernetes **Deployment** with the specified image and replicas.
-- A **Service** on port 80.
-- An **HTTPRoute** (Gateway API) bound to the `cilium-gateway` in `kube-system`, routing traffic for the given hostname to the service.
+- A **Service** on `service.port` that targets the container `port`.
+- An **HTTPRoute** (Gateway API) bound to the `cilium-gateway` in `kube-system` when `route.enabled` is true and `host` is set.
+- A Cilium ingress policy for Gateway traffic to public WebApplications.
+
+### Workload
+
+Workloads run non-HTTP processes as worker Deployments, one-shot Jobs, or CronJobs. They are **namespace-scoped**.
+
+```yaml
+apiVersion: shoulders.io/v1alpha1
+kind: Workload
+metadata:
+  name: team-a-loadgenerator
+  namespace: team-a
+spec:
+  type: cronjob
+  image: curlimages/curl
+  tag: latest
+  schedule: "*/5 * * * *"
+  args:
+    - -fsS
+    - http://team-a-instance
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | string | `worker` | `worker`, `job`, or `cronjob` |
+| `image` / `tag` | string | — | Container image and tag |
+| `replicas` | integer | `1` | Worker Deployment replicas |
+| `schedule` | string | — | Cron schedule for `cronjob` workloads |
+| `command` / `args` | string[] | — | Container command and arguments |
+| `env`, `envFrom`, `volumes`, `volumeMounts`, `resources`, `securityContext` | object/array | — | Kubernetes-style container settings |
 
 ### StateStore
 
@@ -286,9 +348,13 @@ metadata:
   namespace: team-a
 spec:
   postgresql:
+    database: app
+    secretName: team-a-db-app-secret
     databases:
       - team-a-01
       - team-a-02
+    initSQL:
+      - CREATE EXTENSION IF NOT EXISTS pgcrypto;
   redis:
     enabled: true
     replicas: 1
@@ -305,7 +371,10 @@ spec:
 |---|---|---|---|
 | `postgresql.enabled` | boolean | `true` | Enable PostgreSQL |
 | `postgresql.storage` | string | `1Gi` | PVC storage size |
+| `postgresql.database` | string | `app` | Bootstrap application database |
+| `postgresql.secretName` | string | `<name>-app-secret` | Secret containing `username` and `password` |
 | `postgresql.databases` | string[] | — | Additional databases to create |
+| `postgresql.initSQL` | string[] | — | Bootstrap SQL statements for the application database |
 | `redis.enabled` | boolean | `true` | Enable Redis |
 | `redis.replicas` | integer | `1` | Redis replicas |
 | `objectStorage.enabled` | boolean | `false` | Enable Garage bucket provisioning |
@@ -318,7 +387,9 @@ spec:
 | `objectStorage.buckets[].owner` | boolean | `false` | Grant owner access to the generated key |
 
 When PostgreSQL is enabled, this creates:
-- A CloudNativePG **Cluster** (2 instances) with an `app` user, an `app-secret` Secret (base64 credentials), and any extra databases listed.
+- A CloudNativePG **Cluster** (profile-sized instances) with an app user, a per-StateStore Secret named `<name>-app-secret` by default, and any extra databases listed.
+- CloudNativePG read/write Service names such as `<state-store>-rw`; applications commonly use host `<state-store>-rw.<namespace>.svc.cluster.local`, database `postgresql.database`, and Secret keys `username`/`password`.
+- Extra PostgreSQL databases are created with the app user as owner so application-managed schema creation works without a privileged side path.
 
 When Redis is enabled, this creates:
 - A Redis **Deployment** and **Service** (`<name>-redis`).

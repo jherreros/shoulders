@@ -24,8 +24,9 @@ The standard deployment workflow follows this order:
 1. Create a workspace    → shoulders workspace create <name>
 2. Set active workspace  → shoulders workspace use <name>
 3. Deploy application    → shoulders app init <name> --image <image>
-4. Add infrastructure    → shoulders infra add-db <name> / add-bucket <name> / add-stream <name>
-5. Verify                → shoulders status / shoulders logs <app-name>
+4. Add workers/jobs      → shoulders workload worker/job/cron <name> --image <image>
+5. Add infrastructure    → shoulders infra add-db <name> / add-bucket <name> / add-stream <name>
+6. Verify                → shoulders status / shoulders logs <app-name>
 ```
 
 ## Important: Naming Convention
@@ -61,8 +62,12 @@ Shoulders supports `platform.profile: small|medium|large` in the CLI config. `me
 |------|---------|
 | Create workspace | `shoulders workspace create <name>` |
 | Set active workspace | `shoulders workspace use <name>` |
-| Deploy app | `shoulders app init <name> --image <img> [--host h] [--port p] [--replicas n]` |
-| Add PostgreSQL | `shoulders infra add-db <name> --type postgres [--tier dev\|prod]` |
+| Deploy app | `shoulders app init <name> --image <img> [--host h] [--port p] [--replicas n] [--internal]` |
+| Update app | `shoulders app update <name> [--image img] [--env K=V] [--readiness-path /ready]` |
+| Apply app manifest | `shoulders app apply -f webapp.yaml` |
+| Load local image | `shoulders app build-image <img> [ctx]` / `shoulders app load-image <img>` |
+| Add worker/job | `shoulders workload worker <name>` / `shoulders workload job <name>` / `shoulders workload cron <name> --schedule "*/5 * * * *"` |
+| Add PostgreSQL | `shoulders infra add-db <name> --type postgres [--tier dev\|prod] [--database app] [--databases db1,db2]` |
 | Add Redis | `shoulders infra add-db <name> --type redis` |
 | Add S3 bucket | `shoulders infra add-bucket <name> [--bucket bucket-name] [--secret secret-name]` |
 | Add Kafka topics | `shoulders infra add-stream <name> --topics "t1,t2" [--partitions n] [--topic-config k=v]` (`medium`/`large`) |

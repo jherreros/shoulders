@@ -1,0 +1,22 @@
+apiVersion: shoulders.io/v1alpha1
+kind: Workload
+metadata:
+  name: team-a-loadgenerator
+  namespace: team-a
+spec:
+  type: cronjob
+  image: curlimages/curl
+  tag: latest
+  schedule: "*/5 * * * *"
+  args:
+    - -fsS
+    - http://team-a-instance
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  securityContext:
+    runAsNonRoot: true

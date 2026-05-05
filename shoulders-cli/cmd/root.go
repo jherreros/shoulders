@@ -71,6 +71,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(workspaceCmd)
 	rootCmd.AddCommand(appCmd)
+	rootCmd.AddCommand(workloadCmd)
 	rootCmd.AddCommand(infraCmd)
 	rootCmd.AddCommand(clusterCmd)
 	rootCmd.AddCommand(dashboardCmd)

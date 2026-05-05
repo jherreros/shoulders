@@ -39,7 +39,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Batch resources
   - apiGroups: ["batch"]
-    resources: ["jobs"]
+    resources: ["jobs", "jobs/status", "cronjobs", "cronjobs/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Gateway API
   - apiGroups: ["gateway.networking.k8s.io"]

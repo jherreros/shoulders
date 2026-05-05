@@ -52,15 +52,32 @@ go build -o shoulders
 ### Application Lifecycle
 ```bash
 ./shoulders app init hello --image nginx:1.26 --replicas 1
+./shoulders app update hello --image nginx:1.27 --replicas 2
+./shoulders app apply -f webapp.yaml
+./shoulders app init backend --image api:dev --internal --port 8080 \
+  --env LOG_LEVEL=debug --env-from-secret backend-config \
+  --readiness-path /ready --cpu-request 100m --memory-limit 256Mi
+./shoulders app build-image api:dev .
+./shoulders app load-image api:dev
 ./shoulders app list
 ./shoulders app describe hello
 ./shoulders logs hello
 ./shoulders app delete hello
 ```
 
+### Workloads
+```bash
+./shoulders workload worker payments-worker --image worker:latest --replicas 2
+./shoulders workload job db-init --image migrate:latest --arg up
+./shoulders workload cron loadgenerator --image curlimages/curl:latest --schedule "*/5 * * * *" \
+  --arg -fsS --arg http://frontend
+./shoulders workload list
+./shoulders workload delete loadgenerator
+```
+
 ### Infrastructure
 ```bash
-./shoulders infra add-db app-db --type postgres --tier dev
+./shoulders infra add-db app-db --type postgres --tier dev --database app --databases app_ledger,app_accounts
 ./shoulders infra add-bucket app-assets --bucket team-a-assets --secret team-a-assets-s3
 ./shoulders infra add-stream events --topics "logs,events" --partitions 3 --replicas 3 \
   --topic-config cleanup.policy=compact
@@ -145,6 +162,10 @@ Use `-o table|json|yaml` for supported list and status commands.
 
 ## Notes
 - `shoulders app init` supports `--dry-run` to emit YAML instead of applying it.
+- `shoulders app update` changes common WebApplication fields in place, and `shoulders app apply -f` applies manifest changes for the full API surface.
+- `shoulders app init` and `update` expose environment variables, `envFrom`, Secret and `emptyDir` mounts, HTTP probes, resource requests/limits, container security context, and `--internal` services without HTTPRoutes.
+- `shoulders app build-image` and `shoulders app load-image` import local Docker images into all local vind node containers for fast inner-loop development.
+- `shoulders workload worker|job|cron` provides first-class background Deployment, one-shot Job, and CronJob resources.
 - `shoulders logs` attempts a Loki query first and falls back to direct pod log streaming (no `kubectl`).
 - In `small`, `shoulders infra add-stream` and `shoulders reporter` report that the omitted capability requires `medium` or `large` instead of failing on missing services.
 - `shoulders up` provisions the cluster via the vCluster Go library (vind/Docker driver) and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
@@ -152,6 +173,7 @@ Use `-o table|json|yaml` for supported list and status commands.
 - `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
 - `shoulders reporter` opens the configured Policy Reporter host, defaulting to `reporter.localhost`, and falls back to a local port-forward on port 8082.
 - `shoulders infra add-bucket` creates a StateStore object bucket backed by Garage and writes S3 credentials to a workspace Secret.
+- `shoulders infra add-db` supports `--database`, `--databases`, `--secret`, and repeatable `--init-sql`; PostgreSQL credentials default to Secret `<name>-app-secret` with keys `username` and `password`.
 - `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--topic-config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
 - `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.

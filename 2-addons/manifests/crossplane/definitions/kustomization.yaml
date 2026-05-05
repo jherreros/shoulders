@@ -3,5 +3,6 @@ kind: Kustomization
 resources:
   - workspace-xrd.yaml
   - application-xrd.yaml
+  - workload-xrd.yaml
   - state-store-xrd.yaml
   - event-stream-xrd.yaml

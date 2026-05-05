@@ -108,6 +108,39 @@ export function CreateResourceDialog({
 									tag: manifest?.spec?.tag ?? prev.webapp.tag,
 									replicas: String(manifest?.spec?.replicas ?? prev.webapp.replicas),
 									host: manifest?.spec?.host ?? prev.webapp.host,
+									port: String(manifest?.spec?.port ?? prev.webapp.port),
+									internal:
+										manifest?.spec?.route?.enabled === undefined
+											? prev.webapp.internal
+											: manifest.spec.route.enabled === false,
+									envText: (manifest?.spec?.env ?? [])
+										.map((entry: { name?: string; value?: string }) =>
+											entry?.name ? `${entry.name}=${entry.value ?? ''}` : ''
+										)
+										.filter(Boolean)
+										.join('\n'),
+								},
+							};
+						}
+						if (config.id === 'workloads') {
+							return {
+								...prev,
+								name,
+								namespace,
+								workload: {
+									type: manifest?.spec?.type ?? prev.workload.type,
+									image: manifest?.spec?.image ?? prev.workload.image,
+									tag: manifest?.spec?.tag ?? prev.workload.tag,
+									replicas: String(manifest?.spec?.replicas ?? prev.workload.replicas),
+									schedule: manifest?.spec?.schedule ?? prev.workload.schedule,
+									commandText: (manifest?.spec?.command ?? []).join('\n'),
+									argsText: (manifest?.spec?.args ?? []).join('\n'),
+									envText: (manifest?.spec?.env ?? [])
+										.map((entry: { name?: string; value?: string }) =>
+											entry?.name ? `${entry.name}=${entry.value ?? ''}` : ''
+										)
+										.filter(Boolean)
+										.join('\n'),
 								},
 							};
 						}
@@ -123,7 +156,12 @@ export function CreateResourceDialog({
 										manifest?.spec?.postgresql?.enabled ?? prev.stateStore.postgresEnabled,
 									postgresStorage:
 										manifest?.spec?.postgresql?.storage ?? prev.stateStore.postgresStorage,
+									postgresDatabase:
+										manifest?.spec?.postgresql?.database ?? prev.stateStore.postgresDatabase,
+									postgresSecretName:
+										manifest?.spec?.postgresql?.secretName ?? prev.stateStore.postgresSecretName,
 									postgresDatabases: (manifest?.spec?.postgresql?.databases ?? []).join(', '),
+									postgresInitSQL: (manifest?.spec?.postgresql?.initSQL ?? []).join('\n'),
 									redisEnabled:
 										manifest?.spec?.redis?.enabled ?? prev.stateStore.redisEnabled,
 									redisReplicas: String(
@@ -340,7 +378,165 @@ export function CreateResourceDialog({
 											}))
 										}
 										size="small"
+										required={!createForm.webapp.internal}
+										disabled={createForm.webapp.internal}
+									/>
+									<TextField
+										label="Port"
+										value={createForm.webapp.port}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												webapp: { ...prev.webapp, port: event.target.value },
+											}))
+										}
+										size="small"
 										required
+									/>
+									<FormControlLabel
+										control={
+											<Switch
+												checked={createForm.webapp.internal}
+												onChange={(event) =>
+													setCreateForm((prev) => ({
+														...prev,
+														webapp: { ...prev.webapp, internal: event.target.checked },
+													}))
+												}
+												color="primary"
+											/>
+										}
+										label="Internal Service"
+									/>
+									<TextField
+										label="Environment"
+										value={createForm.webapp.envText}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												webapp: { ...prev.webapp, envText: event.target.value },
+											}))
+										}
+										placeholder="KEY=value"
+										helperText="Comma or newline separated"
+										minRows={2}
+										multiline
+										size="small"
+									/>
+								</Stack>
+							)}
+							{createConfig.id === 'workloads' && (
+								<Stack spacing={2}>
+									<FormControl fullWidth size="small">
+										<InputLabel id="workload-type">Type</InputLabel>
+										<Select
+											labelId="workload-type"
+											label="Type"
+											value={createForm.workload.type}
+											onChange={(event) =>
+												setCreateForm((prev) => ({
+													...prev,
+													workload: { ...prev.workload, type: event.target.value },
+												}))
+											}
+										>
+											<MenuItem value="worker">Worker</MenuItem>
+											<MenuItem value="job">Job</MenuItem>
+											<MenuItem value="cronjob">CronJob</MenuItem>
+										</Select>
+									</FormControl>
+									<TextField
+										label="Image"
+										value={createForm.workload.image}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												workload: { ...prev.workload, image: event.target.value },
+											}))
+										}
+										size="small"
+										required
+									/>
+									<TextField
+										label="Tag"
+										value={createForm.workload.tag}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												workload: { ...prev.workload, tag: event.target.value },
+											}))
+										}
+										size="small"
+										required
+									/>
+									<TextField
+										label="Replicas"
+										value={createForm.workload.replicas}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												workload: { ...prev.workload, replicas: event.target.value },
+											}))
+										}
+										size="small"
+										disabled={createForm.workload.type !== 'worker'}
+									/>
+									{createForm.workload.type === 'cronjob' && (
+										<TextField
+											label="Schedule"
+											value={createForm.workload.schedule}
+											onChange={(event) =>
+												setCreateForm((prev) => ({
+													...prev,
+													workload: { ...prev.workload, schedule: event.target.value },
+												}))
+											}
+											size="small"
+											required
+										/>
+									)}
+									<TextField
+										label="Command"
+										value={createForm.workload.commandText}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												workload: { ...prev.workload, commandText: event.target.value },
+											}))
+										}
+										helperText="Comma or newline separated"
+										minRows={2}
+										multiline
+										size="small"
+									/>
+									<TextField
+										label="Arguments"
+										value={createForm.workload.argsText}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												workload: { ...prev.workload, argsText: event.target.value },
+											}))
+										}
+										helperText="Comma or newline separated"
+										minRows={2}
+										multiline
+										size="small"
+									/>
+									<TextField
+										label="Environment"
+										value={createForm.workload.envText}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												workload: { ...prev.workload, envText: event.target.value },
+											}))
+										}
+										placeholder="KEY=value"
+										helperText="Comma or newline separated"
+										minRows={2}
+										multiline
+										size="small"
 									/>
 								</Stack>
 							)}
@@ -379,6 +575,34 @@ export function CreateResourceDialog({
 										size="small"
 									/>
 									<TextField
+										label="PostgreSQL Database"
+										value={createForm.stateStore.postgresDatabase}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												stateStore: {
+													...prev.stateStore,
+													postgresDatabase: event.target.value,
+												},
+											}))
+										}
+										size="small"
+									/>
+									<TextField
+										label="PostgreSQL Secret"
+										value={createForm.stateStore.postgresSecretName}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												stateStore: {
+													...prev.stateStore,
+													postgresSecretName: event.target.value,
+												},
+											}))
+										}
+										size="small"
+									/>
+									<TextField
 										label="PostgreSQL Databases"
 										value={createForm.stateStore.postgresDatabases}
 										onChange={(event) =>
@@ -393,6 +617,23 @@ export function CreateResourceDialog({
 										size="small"
 										placeholder="team-a-01, team-a-02"
 										helperText="Comma or newline separated"
+									/>
+									<TextField
+										label="PostgreSQL Init SQL"
+										value={createForm.stateStore.postgresInitSQL}
+										onChange={(event) =>
+											setCreateForm((prev) => ({
+												...prev,
+												stateStore: {
+													...prev.stateStore,
+													postgresInitSQL: event.target.value,
+												},
+											}))
+										}
+										helperText="One statement per line"
+										minRows={3}
+										multiline
+										size="small"
 									/>
 									<FormControlLabel
 										control={

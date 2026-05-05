@@ -28,11 +28,27 @@ export type CreateFormState = {
 		tag: string;
 		replicas: string;
 		host: string;
+		port: string;
+		internal: boolean;
+		envText: string;
+	};
+	workload: {
+		type: string;
+		image: string;
+		tag: string;
+		replicas: string;
+		schedule: string;
+		commandText: string;
+		argsText: string;
+		envText: string;
 	};
 	stateStore: {
 		postgresEnabled: boolean;
 		postgresStorage: string;
+		postgresDatabase: string;
+		postgresSecretName: string;
 		postgresDatabases: string;
+		postgresInitSQL: string;
 		redisEnabled: boolean;
 		redisReplicas: string;
 		objectStorageEnabled: boolean;

@@ -20,63 +20,81 @@ spec:
         inline:
           template: |
             {{ if .observed.composite.resource.spec.postgresql.enabled }}
+            {{- $stateStoreName := .observed.composite.resource.metadata.name }}
+            {{- $targetNamespace := .observed.composite.resource.metadata.namespace }}
+            {{- $postgresql := .observed.composite.resource.spec.postgresql }}
+            {{- $postgresSecretName := $postgresql.secretName | default (printf "%s-app-secret" $stateStoreName) }}
+            {{- $postgresDatabase := $postgresql.database | default "app" }}
+            {{- $postgresUsername := $postgresql.username | default "app" }}
+            {{- $postgresPassword := $postgresql.password | default "password" }}
             ---
             apiVersion: postgresql.cnpg.io/v1
             kind: Cluster
             metadata:
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: "postgres-cluster"
-              name: {{ .observed.composite.resource.metadata.name | quote }}
-              namespace: {{ .observed.composite.resource.metadata.namespace | quote }}
+              name: {{ $stateStoreName | quote }}
+              namespace: {{ $targetNamespace | quote }}
             spec:
               instances: ${SHOULDERS_POSTGRES_INSTANCES}
               bootstrap:
                 initdb:
-                  database: app
-                  owner: app
+                  database: {{ $postgresDatabase | quote }}
+                  owner: {{ $postgresUsername | quote }}
                   secret:
-                    name: app-secret
+                    name: {{ $postgresSecretName | quote }}
+                  {{ if or $postgresql.databases $postgresql.initSQL }}
                   postInitSQL:
-                    {{- range .observed.composite.resource.spec.postgresql.databases }}
-                    - {{ printf "CREATE DATABASE %q;" . | quote }}
-                    - {{ printf "GRANT ALL PRIVILEGES ON DATABASE %q TO app;" . | quote }}
-                    {{- end }}
+                    {{ range $postgresql.databases }}
+                    - {{ printf "CREATE DATABASE %q OWNER %q;" . $postgresUsername | quote }}
+                    - {{ printf "GRANT ALL PRIVILEGES ON DATABASE %q TO %q;" . $postgresUsername | quote }}
+                    - {{ printf "GRANT CREATE ON DATABASE %q TO %q;" . $postgresUsername | quote }}
+                    {{ end }}
+                    {{ range $postgresql.initSQL }}
+                    - {{ . | quote }}
+                    {{ end }}
+                  {{ end }}
               storage:
-                size: {{ .observed.composite.resource.spec.postgresql.storage | default "1Gi" | quote }}
+                size: {{ $postgresql.storage | default "1Gi" | quote }}
             ---
             apiVersion: v1
             kind: Secret
             metadata:
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: "app-secret"
-              name: "app-secret"
-              namespace: {{ .observed.composite.resource.metadata.namespace | quote }}
+              name: {{ $postgresSecretName | quote }}
+              namespace: {{ $targetNamespace | quote }}
             type: Opaque
-            data:
-              username: YXBw
-              password: cGFzc3dvcmQ=
+            stringData:
+              username: {{ $postgresUsername | quote }}
+              password: {{ $postgresPassword | quote }}
             {{ end }}
 
             {{ if .observed.composite.resource.spec.redis.enabled }}
+            {{- $stateStoreName := .observed.composite.resource.metadata.name }}
+            {{- $targetNamespace := .observed.composite.resource.metadata.namespace }}
+            {{- $redisName := printf "%s-redis" $stateStoreName }}
             ---
             apiVersion: apps/v1
             kind: Deployment
             metadata:
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: "redis-deployment"
-              name: {{ printf "%s-redis" .observed.composite.resource.metadata.name | quote }}
-              namespace: {{ .observed.composite.resource.metadata.namespace | quote }}
+              name: {{ $redisName | quote }}
+              namespace: {{ $targetNamespace | quote }}
               labels:
-                app: redis
+                app: {{ $redisName | quote }}
+                shoulders.io/state-store: {{ $stateStoreName | quote }}
             spec:
               replicas: {{ .observed.composite.resource.spec.redis.replicas | default 1 }}
               selector:
                 matchLabels:
-                  app: redis
+                  app: {{ $redisName | quote }}
               template:
                 metadata:
                   labels:
-                    app: redis
+                    app: {{ $redisName | quote }}
+                    shoulders.io/state-store: {{ $stateStoreName | quote }}
                 spec:
                   containers:
                     - name: redis
@@ -89,13 +107,14 @@ spec:
             metadata:
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: "redis-service"
-              name: {{ printf "%s-redis" .observed.composite.resource.metadata.name | quote }}
-              namespace: {{ .observed.composite.resource.metadata.namespace | quote }}
+              name: {{ $redisName | quote }}
+              namespace: {{ $targetNamespace | quote }}
               labels:
-                app: redis
+                app: {{ $redisName | quote }}
+                shoulders.io/state-store: {{ $stateStoreName | quote }}
             spec:
               selector:
-                app: redis
+                app: {{ $redisName | quote }}
               ports:
                 - port: 6379
                   targetPort: 6379

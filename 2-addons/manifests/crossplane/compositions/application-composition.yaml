@@ -10,90 +10,202 @@ spec:
     kind: WebApplication
   mode: Pipeline
   pipeline:
-    - step: patch-and-transform
+    - step: go-templating
       functionRef:
-        name: function-patch-and-transform
+        name: function-go-templating
       input:
-        apiVersion: pt.fn.crossplane.io/v1beta1
-        kind: Resources
-        resources:
-          - name: deployment
-            base:
-              apiVersion: apps/v1
-              kind: Deployment
-              spec:
-                selector:
-                  matchLabels: {}
-                template:
-                  metadata:
-                    labels: {}
-                  spec:
-                    containers:
-                      - name: app
-            patches:
-              - fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-              - fromFieldPath: metadata.namespace
-                toFieldPath: metadata.namespace
-              - fromFieldPath: metadata.name
-                toFieldPath: spec.selector.matchLabels.app
-              - fromFieldPath: metadata.name
-                toFieldPath: spec.template.metadata.labels.app
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.image
-                    - fromFieldPath: spec.tag
-                  strategy: string
-                  string:
-                    fmt: "%s:%s"
-                toFieldPath: spec.template.spec.containers[0].image
-              - fromFieldPath: spec.replicas
-                toFieldPath: spec.replicas
-            readinessChecks:
-              - type: MatchCondition
-                matchCondition:
-                  type: Available
-                  status: "True"
-          - name: service
-            base:
-              apiVersion: v1
-              kind: Service
-              spec:
-                selector: {}
-                ports:
-                  - port: 80
-                    targetPort: 80
-            patches:
-              - fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-              - fromFieldPath: metadata.namespace
-                toFieldPath: metadata.namespace
-              - fromFieldPath: metadata.name
-                toFieldPath: spec.selector.app
-            readinessChecks:
-              - type: None
-          - name: httproute
-            base:
-              apiVersion: gateway.networking.k8s.io/v1
-              kind: HTTPRoute
-              spec:
-                parentRefs:
-                  - name: cilium-gateway
-                    namespace: kube-system
-                hostnames: []
-                rules:
-                  - backendRefs:
-                      - name: placeholder
-                        port: 80
-            patches:
-              - fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-              - fromFieldPath: metadata.namespace
-                toFieldPath: metadata.namespace
-              - fromFieldPath: spec.host
-                toFieldPath: spec.hostnames[0]
-              - fromFieldPath: metadata.name
-                toFieldPath: spec.rules[0].backendRefs[0].name
-            readinessChecks:
-              - type: None
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $namespace := $xr.metadata.namespace -}}
+            {{- $spec := $xr.spec -}}
+            {{- $containerPort := ($spec.port | default 80) -}}
+            {{- $servicePort := 80 -}}
+            {{- $replicas := 1 -}}
+            {{- $routeEnabled := true -}}
+            {{- $gatewayName := "cilium-gateway" -}}
+            {{- $gatewayNamespace := "kube-system" -}}
+            {{- if hasKey $spec "replicas" -}}
+            {{- $replicas = $spec.replicas -}}
+            {{- end -}}
+            {{- with $spec.service -}}
+            {{- with .port -}}
+            {{- $servicePort = . -}}
+            {{- end -}}
+            {{- end -}}
+            {{- with $spec.route -}}
+            {{- if eq .enabled false -}}
+            {{- $routeEnabled = false -}}
+            {{- end -}}
+            {{- with .gatewayName -}}
+            {{- $gatewayName = . -}}
+            {{- end -}}
+            {{- with .gatewayNamespace -}}
+            {{- $gatewayNamespace = . -}}
+            {{- end -}}
+            {{- end -}}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "deployment"
+                {{ if eq (int $replicas) 0 }}
+                gotemplating.fn.crossplane.io/ready: "True"
+                {{ end }}
+              name: {{ $name | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/webapplication: {{ $name | quote }}
+            spec:
+              replicas: {{ $replicas }}
+              selector:
+                matchLabels:
+                  app: {{ $name | quote }}
+              template:
+                metadata:
+                  labels:
+                    app: {{ $name | quote }}
+                    shoulders.io/webapplication: {{ $name | quote }}
+                spec:
+                  {{ with $spec.serviceAccountName }}
+                  serviceAccountName: {{ . | quote }}
+                  {{ end }}
+                  {{ with $spec.podSecurityContext }}
+                  securityContext:
+            {{ toYaml . | nindent 20 }}
+                  {{ end }}
+                  containers:
+                    - name: app
+                      image: {{ printf "%s:%s" $spec.image $spec.tag | quote }}
+                      {{ with $spec.imagePullPolicy }}
+                      imagePullPolicy: {{ . | quote }}
+                      {{ end }}
+                      {{ with $spec.command }}
+                      command:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.args }}
+                      args:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      ports:
+                        - name: http
+                          containerPort: {{ $containerPort }}
+                      {{ with $spec.env }}
+                      env:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.envFrom }}
+                      envFrom:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.resources }}
+                      resources:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.securityContext }}
+                      securityContext:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.readinessProbe }}
+                      readinessProbe:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.livenessProbe }}
+                      livenessProbe:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.startupProbe }}
+                      startupProbe:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                      {{ with $spec.volumeMounts }}
+                      volumeMounts:
+              {{ toYaml . | nindent 24 }}
+                      {{ end }}
+                  {{ with $spec.volumes }}
+                  volumes:
+              {{ toYaml . | nindent 20 }}
+                  {{ end }}
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "service"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $name | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/webapplication: {{ $name | quote }}
+            spec:
+              selector:
+                app: {{ $name | quote }}
+              ports:
+                - name: http
+                  port: {{ $servicePort }}
+                  targetPort: {{ $containerPort }}
+            {{ if and $routeEnabled $spec.host }}
+            ---
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "httproute"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ $name | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/webapplication: {{ $name | quote }}
+            spec:
+              parentRefs:
+                - name: {{ $gatewayName | quote }}
+                  namespace: {{ $gatewayNamespace | quote }}
+              hostnames:
+                - {{ $spec.host | quote }}
+              rules:
+                - backendRefs:
+                    - name: {{ $name | quote }}
+                      port: {{ $servicePort }}
+            ---
+            apiVersion: cilium.io/v2
+            kind: CiliumNetworkPolicy
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: "gateway-ingress-policy"
+                gotemplating.fn.crossplane.io/ready: "True"
+              name: {{ printf "%s-gateway-ingress" $name | trunc 63 | trimSuffix "-" | quote }}
+              namespace: {{ $namespace | quote }}
+              labels:
+                app: {{ $name | quote }}
+                shoulders.io/webapplication: {{ $name | quote }}
+            spec:
+              endpointSelector:
+                matchLabels:
+                  app: {{ $name | quote }}
+              ingress:
+                - fromEntities:
+                    - ingress
+                  toPorts:
+                    - ports:
+                        - port: {{ $containerPort | quote }}
+                          protocol: TCP
+                - fromEndpoints:
+                    - matchLabels:
+                        k8s:io.kubernetes.pod.namespace: {{ $gatewayNamespace | quote }}
+                  toPorts:
+                    - ports:
+                        - port: {{ $containerPort | quote }}
+                          protocol: TCP
+            {{ end }}
+    - step: auto-ready
+      functionRef:
+        name: function-auto-ready

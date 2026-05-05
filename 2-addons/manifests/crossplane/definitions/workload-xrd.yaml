@@ -1,12 +1,12 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: webapplications.shoulders.io
+  name: workloads.shoulders.io
 spec:
   group: shoulders.io
   names:
-    kind: WebApplication
-    plural: webapplications
+    kind: Workload
+    plural: workloads
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -19,6 +19,13 @@ spec:
             spec:
               type: object
               properties:
+                type:
+                  type: string
+                  default: worker
+                  enum:
+                    - worker
+                    - job
+                    - cronjob
                 image:
                   type: string
                 tag:
@@ -27,13 +34,26 @@ spec:
                   type: integer
                   default: 1
                   minimum: 0
-                host:
+                schedule:
                   type: string
-                port:
+                restartPolicy:
+                  type: string
+                  default: OnFailure
+                  enum:
+                    - Always
+                    - OnFailure
+                    - Never
+                backoffLimit:
                   type: integer
-                  default: 80
-                  minimum: 1
-                  maximum: 65535
+                  default: 6
+                  minimum: 0
+                concurrencyPolicy:
+                  type: string
+                  default: Forbid
+                  enum:
+                    - Allow
+                    - Forbid
+                    - Replace
                 imagePullPolicy:
                   type: string
                   enum:
@@ -48,26 +68,6 @@ spec:
                   type: array
                   items:
                     type: string
-                service:
-                  type: object
-                  properties:
-                    port:
-                      type: integer
-                      default: 80
-                      minimum: 1
-                      maximum: 65535
-                route:
-                  type: object
-                  properties:
-                    enabled:
-                      type: boolean
-                      default: true
-                    gatewayName:
-                      type: string
-                      default: cilium-gateway
-                    gatewayNamespace:
-                      type: string
-                      default: kube-system
                 env:
                   type: array
                   items:
@@ -88,15 +88,6 @@ spec:
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
-                readinessProbe:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                livenessProbe:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                startupProbe:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
                 resources:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
@@ -111,4 +102,3 @@ spec:
               required:
                 - image
                 - tag
-                - replicas
