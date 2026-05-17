@@ -34,11 +34,11 @@
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "yaml": "^2.8.3"
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "tsx": "^4.21.0",
+    "@types/node": "^25.8.0",
+    "tsx": "^4.22.1",
     "typescript": "^6.0.3"
   }
 }
