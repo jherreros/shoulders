@@ -15,7 +15,7 @@ spec:
         kind: HelmRepository
         name: cnpg
         namespace: flux-system
-      version: "0.28.0"
+      version: "0.28.2"
   values:
     monitoring:
       podMonitorEnabled: true
