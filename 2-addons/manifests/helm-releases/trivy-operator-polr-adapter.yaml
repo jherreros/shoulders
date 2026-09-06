@@ -15,7 +15,7 @@ spec:
         kind: HelmRepository
         name: trivy-operator-polr-adapter
         namespace: flux-system
-      version: "0.11.2"
+      version: "0.11.5"
   values:
     adapters:
       vulnerabilityReports:
