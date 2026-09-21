@@ -6,6 +6,33 @@ import (
 	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
 )
 
+func TestUpPhasesIncludesBundleImport(t *testing.T) {
+	originalConfig := currentConfig
+	originalBundle := upBundle
+	defer func() {
+		currentConfig = originalConfig
+		upBundle = originalBundle
+	}()
+
+	currentConfig = config.DefaultConfig()
+	upBundle = ""
+	if got := len(upPhases()); got != 7 {
+		t.Fatalf("expected 7 phases without bundle, got %d: %v", got, upPhases())
+	}
+
+	// The bundle install runs one more tracker step than the phase list
+	// historically had, panicking PhaseTracker.Start at the very end of a
+	// successful install. The phase list must cover it.
+	upBundle = "shoulders-bundle.tar.gz"
+	phases := upPhases()
+	if len(phases) != 8 {
+		t.Fatalf("expected 8 phases with bundle, got %d: %v", len(phases), phases)
+	}
+	if phases[1] != "Import airgap bundle" {
+		t.Fatalf("expected bundle import as second phase, got %v", phases)
+	}
+}
+
 func TestCurrentNamespaceOverride(t *testing.T) {
 	originalOverride := namespaceOverride
 	originalConfig := currentConfig

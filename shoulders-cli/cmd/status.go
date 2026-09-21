@@ -92,6 +92,14 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 		fluxReady = false
 		fluxPending = []string{err.Error()}
 	}
+	// Surface OCI/Git source pull failures directly: with source: oci a wiped
+	// local registry leaves Kustomizations pending with unhelpful messages.
+	if sources, srcErr := flux.PendingSources(ctx, dynamicClient, "flux-system"); srcErr == nil {
+		if failed, ok := flux.FirstSourcePullFailure(sources); ok {
+			fluxReady = false
+			fluxPending = append(fluxPending, fmt.Sprintf("%s/%s: %s", failed.Kind, failed.Name, failed.Message))
+		}
+	}
 
 	// 4. Crossplane
 	xpReady, xpUnhealthy, err := crossplane.AllProvidersHealthy(ctx, dynamicClient)

@@ -13,6 +13,9 @@ const (
 	ProfileMedium = "medium"
 	ProfileLarge  = "large"
 
+	FluxSourceGit = "git"
+	FluxSourceOCI = "oci"
+
 	DefaultClusterName      = "shoulders"
 	DefaultCiliumVersion    = "1.19.2"
 	DefaultFluxRepoURL      = "https://github.com/jherreros/shoulders.git"
@@ -53,13 +56,21 @@ type CiliumConfig struct {
 }
 
 type FluxConfig struct {
+	Source        string              `yaml:"source,omitempty" json:"source,omitempty"`
 	GitRepository GitRepositoryConfig `yaml:"gitRepository,omitempty" json:"gitRepository,omitempty"`
+	OCIRepository OCIRepositoryConfig `yaml:"ociRepository,omitempty" json:"ociRepository,omitempty"`
 	PathPrefix    string              `yaml:"pathPrefix,omitempty" json:"pathPrefix,omitempty"`
 }
 
 type GitRepositoryConfig struct {
 	URL    string `yaml:"url,omitempty" json:"url,omitempty"`
 	Branch string `yaml:"branch,omitempty" json:"branch,omitempty"`
+}
+
+type OCIRepositoryConfig struct {
+	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
+	Tag      string `yaml:"tag,omitempty" json:"tag,omitempty"`
+	Insecure bool   `yaml:"insecure,omitempty" json:"insecure,omitempty"`
 }
 
 func DefaultConfig() *Config {
@@ -92,6 +103,10 @@ func (cfg *Config) ApplyDefaults() {
 	if cfg.Platform.Flux.GitRepository.Branch == "" {
 		cfg.Platform.Flux.GitRepository.Branch = DefaultFluxBranch
 	}
+	cfg.Platform.Flux.Source = normalizeFluxSource(cfg.Platform.Flux.Source)
+	if cfg.Platform.Flux.Source == "" {
+		cfg.Platform.Flux.Source = FluxSourceGit
+	}
 	if cfg.Platform.Flux.PathPrefix == "" {
 		cfg.Platform.Flux.PathPrefix = "."
 	}
@@ -110,10 +125,26 @@ func (cfg *Config) Validate() error {
 	}
 	switch cfg.Provider() {
 	case ProviderVind, ProviderExisting:
-		return nil
 	default:
 		return fmt.Errorf("unsupported cluster provider %q", cfg.Cluster.Provider)
 	}
+	switch cfg.FluxSource() {
+	case FluxSourceGit, FluxSourceOCI:
+	default:
+		return fmt.Errorf("unsupported platform flux source %q", cfg.Platform.Flux.Source)
+	}
+	if cfg.FluxSource() == FluxSourceOCI {
+		if strings.TrimSpace(cfg.Platform.Flux.OCIRepository.URL) == "" {
+			return fmt.Errorf("platform.flux.ociRepository.url is required when platform.flux.source is %q", FluxSourceOCI)
+		}
+		if !strings.HasPrefix(strings.TrimSpace(cfg.Platform.Flux.OCIRepository.URL), "oci://") {
+			return fmt.Errorf("platform.flux.ociRepository.url must start with %q", "oci://")
+		}
+		if strings.TrimSpace(cfg.Platform.Flux.OCIRepository.Tag) == "" {
+			return fmt.Errorf("platform.flux.ociRepository.tag is required when platform.flux.source is %q (use an immutable tag, not latest)", FluxSourceOCI)
+		}
+	}
+	return nil
 }
 
 func (cfg *Config) Profile() string {
@@ -163,6 +194,38 @@ func (cfg *Config) FluxRepositoryURL() string {
 		return DefaultFluxRepoURL
 	}
 	return cfg.Platform.Flux.GitRepository.URL
+}
+
+func (cfg *Config) FluxSource() string {
+	if cfg == nil {
+		return FluxSourceGit
+	}
+	source := normalizeFluxSource(cfg.Platform.Flux.Source)
+	if source == "" {
+		return FluxSourceGit
+	}
+	return source
+}
+
+func (cfg *Config) FluxOCIURL() string {
+	if cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Platform.Flux.OCIRepository.URL)
+}
+
+func (cfg *Config) FluxOCITag() string {
+	if cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Platform.Flux.OCIRepository.Tag)
+}
+
+func (cfg *Config) FluxOCIInsecure() bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.Platform.Flux.OCIRepository.Insecure
 }
 
 func (cfg *Config) FluxRepositoryBranch() string {
@@ -259,6 +322,10 @@ func normalizeProfile(profile string) string {
 	return strings.ToLower(strings.TrimSpace(profile))
 }
 
+func normalizeFluxSource(source string) string {
+	return strings.ToLower(strings.TrimSpace(source))
+}
+
 func ExampleYAML(provider string) (string, error) {
 	providerValue := provider
 	if providerValue == "" {
@@ -291,17 +358,25 @@ func ExampleYAML(provider string) (string, error) {
 			"    enabled: %s\n"+
 			"    version: %q\n"+
 			"  flux:\n"+
+			"    source: %q\n"+
 			"    gitRepository:\n"+
 			"      url: %q\n"+
 			"      branch: %q\n"+
+			"    ociRepository:\n"+
+			"      url: %q\n"+
+			"      tag: %q\n"+
+			"      insecure: false\n"+
 			"    pathPrefix: %q\n",
 		providerValue,
 		contextHint,
 		DefaultPlatformProfile,
 		ciliumEnabled,
 		DefaultCiliumVersion,
+		FluxSourceGit,
 		DefaultFluxRepoURL,
 		DefaultFluxBranch,
+		"",
+		"",
 		".",
 	), nil
 }

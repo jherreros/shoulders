@@ -3,8 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/jherreros/shoulders/shoulders-cli/internal/airgap"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/bootstrap"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/flux"
@@ -17,12 +20,20 @@ import (
 var (
 	upClusterName string
 	upVerbose     bool
+	upLocal       bool
+	upBundle      string
 )
 
 var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Create the local cluster and install platform addons",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if upLocal && upBundle != "" {
+			return fmt.Errorf("cannot combine --local and --bundle")
+		}
+		if upBundle != "" && currentConfig.Provider() == config.ProviderExisting {
+			return fmt.Errorf("--bundle on provider existing requires pre-mirrored images; automatic image import only supports vind")
+		}
 		clusterName := configuredClusterName(cmd, "name", upClusterName)
 		profileSpec := currentConfig.ProfileSpec()
 		publicConfig := bootstrap.PublicDomainConfig{
@@ -65,8 +76,60 @@ var upCmd = &cobra.Command{
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to create vind cluster: %w", err)
 			}
+			// vind freezes cluster DNS state at creation; reconcile
+			// forwarding right away so later phases never depend on
+			// stale upstreams. Best effort only.
+			if changed, err := bootstrap.EnsureClusterDNS(cmd.Context(), kubeconfig); err != nil {
+				tracker.UpdateDetail(verboseDetail("cluster DNS reconcile warning: %v", err))
+			} else if changed {
+				tracker.UpdateDetail(verboseDetail("reconciled cluster DNS forwarding"))
+			}
 		}
 		tracker.Complete()
+
+		// Bundle preparation: extract once, import all images directly into
+		// the vind nodes before anything is installed, so no workload ever
+		// pulls from the internet. Direct ctr import (with retries) is used
+		// instead of the local registry on purpose: on a fresh cluster the
+		// nodes are tainted until Cilium is up, the registry PVC cannot bind
+		// until the provisioner schedules, and node containers cannot
+		// resolve cluster DNS — the registry is only usable after Cilium,
+		// which itself needs its images first.
+		var bundleMeta *airgap.BundleMeta
+		var bundleDir string
+		var bundleCleanup func()
+		if upBundle != "" {
+			tracker.Start(verboseDetail("extracting airgap bundle and importing images"))
+			extractDir, err := airgap.ExtractBundle(upBundle)
+			if err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+			bundleDir = extractDir
+			bundleCleanup = func() {
+				os.RemoveAll(extractDir) //nolint:errcheck // best-effort temp cleanup
+			}
+			defer bundleCleanup()
+			meta, err := airgap.ReadBundleMeta(extractDir)
+			if err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+			bundleMeta = meta
+			tars, err := airgap.BundleImageTars(extractDir, len(meta.Images))
+			if err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+			tracker.UpdateDetail(verboseDetail("importing %d container images directly", len(tars)))
+			if err := airgap.ImportImageTars(cmd.Context(), clusterName, tars, func(message string) {
+				tracker.UpdateDetail(verboseDetail("%s", message))
+			}); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("import bundle images: %w", err)
+			}
+			tracker.Complete()
+		}
 
 		// Phase 2: networking prerequisites
 		detail := verboseDetail("installing Gateway API CRDs")
@@ -81,7 +144,17 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("failed to install gateway api crds: %w", err)
 		}
 		if currentConfig.CiliumEnabled() {
-			if err := bootstrap.EnsureCilium(kubeconfig, currentConfig.CiliumVersion(), bootstrap.CiliumOptionsForProfile(profileSpec.Name)); err != nil {
+			if bundleMeta != nil {
+				ciliumChart, err := bundleMeta.FindChart("cilium", currentConfig.CiliumVersion())
+				if err != nil {
+					tracker.Fail(err.Error())
+					return fmt.Errorf("bundle cilium chart: %w", err)
+				}
+				if err := bootstrap.EnsureCiliumWithChart(kubeconfig, currentConfig.CiliumVersion(), bootstrap.CiliumOptionsForProfile(profileSpec.Name), filepath.Join(bundleDir, airgap.BundleChartsDir, ciliumChart.File)); err != nil {
+					tracker.Fail(err.Error())
+					return fmt.Errorf("failed to install cilium: %w", err)
+				}
+			} else if err := bootstrap.EnsureCilium(kubeconfig, currentConfig.CiliumVersion(), bootstrap.CiliumOptionsForProfile(profileSpec.Name)); err != nil {
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to install cilium: %w", err)
 			}
@@ -93,16 +166,47 @@ var upCmd = &cobra.Command{
 		tracker.Complete()
 
 		// Phase 3: Flux install
-		tracker.Start(verboseDetail("downloading Flux install manifest and applying GitRepository + Kustomizations"))
-		if err := bootstrap.EnsureFlux(context.Background(), kubeconfig,
-			currentConfig.FluxRepositoryURL(),
-			currentConfig.FluxRepositoryBranch(),
-			currentConfig.FluxPathPrefix(),
-			profileSpec.Name,
+		tracker.Start(verboseDetail("downloading Flux install manifest and applying source + Kustomizations"))
+		fluxSource := bootstrap.FluxSourceFromConfig(currentConfig, profileSpec.Name)
+		fluxManifest := []byte(nil)
+		if upLocal {
+			tracker.UpdateDetail(verboseDetail("snapshotting local working tree and pushing OCI artifact"))
+			localSource, _, err := prepareLocalOCISource(cmd.Context(), profileSpec.Name)
+			if err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+			fluxSource = localSource
+		}
+		if bundleMeta != nil {
+			var err error
+			fluxSource, fluxManifest, err = prepareBundleFluxSource(cmd.Context(), tracker, bundleMeta, bundleDir, profileSpec.Name)
+			if err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+		}
+		if fluxManifest != nil {
+			if err := bootstrap.EnsureFluxWithManifest(context.Background(), kubeconfig,
+				fluxSource,
+				publicConfig,
+				fluxManifest,
+			); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to install flux: %w", err)
+			}
+		} else if err := bootstrap.EnsureFlux(context.Background(), kubeconfig,
+			fluxSource,
 			publicConfig,
 		); err != nil {
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to install flux: %w", err)
+		}
+		if upLocal {
+			if err := saveCurrentConfig(); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to persist local OCI source: %w", err)
+			}
 		}
 		// Always suspend the Flux-managed Cilium HelmRelease. When Cilium is
 		// enabled, the CLI manages the installation directly; when it is
@@ -126,6 +230,13 @@ var upCmd = &cobra.Command{
 			if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to restart stuck pods: %w", err)
+			}
+			// Cilium replaces kube-proxy: wait for the agents so service
+			// routing is programmed before Flux and workloads start.
+			tracker.UpdateDetail(verboseDetail("waiting for cilium agents"))
+			if err := bootstrap.WaitForDaemonSetReady(kubeconfig, "kube-system", "cilium", 10*time.Minute); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("wait for cilium agents: %w", err)
 			}
 		}
 		tracker.Complete()
@@ -221,15 +332,20 @@ func upPhases() []string {
 	if currentConfig != nil && currentConfig.CiliumEnabled() {
 		phaseTwo = "Install Cilium CNI"
 	}
-	return []string{
+	phases := []string{
 		phaseOne,
+	}
+	if upBundle != "" {
+		phases = append(phases, "Import airgap bundle")
+	}
+	return append(phases,
 		phaseTwo,
 		"Install Flux CD",
 		"Reconcile Flux kustomizations",
 		"Wait for platform deployments",
 		"Configure gateway routes",
 		"Validate cluster status",
-	}
+	)
 }
 
 // verboseDetail returns detail only when --verbose is set.
@@ -258,6 +374,11 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 	for {
 		select {
 		case <-ticker.C:
+			if sources, err := flux.PendingSources(ctx, client, "flux-system"); err == nil {
+				if failed, ok := flux.FirstSourcePullFailure(sources); ok {
+					return fmt.Errorf("flux source %s/%s cannot be fetched: %s%s", failed.Kind, failed.Name, failed.Message, fluxSourceHint())
+				}
+			}
 			pending, err := flux.PendingKustomizations(ctx, client, "flux-system")
 			if err != nil {
 				lastErr = err
@@ -298,6 +419,12 @@ func fluxSourceHint() string {
 	if currentConfig == nil {
 		return ""
 	}
+	if currentConfig.FluxSource() == config.FluxSourceOCI {
+		if currentConfig.FluxOCIURL() == "" || currentConfig.FluxOCITag() == "" {
+			return ". The Flux source is oci but platform.flux.ociRepository.url/tag is not set; pass --set platform.flux.ociRepository.url=oci://<registry>/<repo> and --set platform.flux.ociRepository.tag=<immutable-tag>"
+		}
+		return fmt.Sprintf(". The Flux source is %s:%s; verify the artifact was pushed there with an immutable tag (not latest) and the cluster can reach the registry", currentConfig.FluxOCIURL(), currentConfig.FluxOCITag())
+	}
 	if currentConfig.FluxRepositoryURL() != config.DefaultFluxRepoURL || currentConfig.FluxRepositoryBranch() != config.DefaultFluxBranch {
 		return ""
 	}
@@ -337,4 +464,6 @@ func waitForHealthyStatus(ctx context.Context, timeout time.Duration) error {
 func init() {
 	upCmd.Flags().StringVar(&upClusterName, "name", bootstrap.DefaultClusterName, "Name of the cluster to create when provider=vind")
 	upCmd.Flags().BoolVarP(&upVerbose, "verbose", "v", false, "Show detailed progress information for each phase")
+	upCmd.Flags().BoolVar(&upLocal, "local", false, "Snapshot the local working tree (including uncommitted changes) into an OCI artifact and install Flux from it instead of git")
+	upCmd.Flags().StringVar(&upBundle, "bundle", "", "Install from a self-contained airgap bundle file (see 'shoulders vendor') instead of the internet")
 }

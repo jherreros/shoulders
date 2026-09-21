@@ -76,9 +76,14 @@ func NewPhaseTracker(names []string, verbose bool) *PhaseTracker {
 	return pt
 }
 
-// Start marks the next phase as in progress and re-renders.
+// Start marks the next phase as in progress and re-renders. It grows the
+// phase list defensively so a caller with more steps than names fails
+// loudly in the UI instead of panicking.
 func (pt *PhaseTracker) Start(detail string) {
 	pt.current++
+	if pt.current >= len(pt.phases) {
+		pt.phases = append(pt.phases, phaseState{Name: "Additional step"})
+	}
 	pt.phases[pt.current].start = time.Now()
 	pt.render(detail)
 }

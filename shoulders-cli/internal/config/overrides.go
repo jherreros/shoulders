@@ -43,6 +43,18 @@ func ApplyOverrides(cfg *Config, entries []string) error {
 			cfg.Platform.Flux.GitRepository.URL = value
 		case "platform.flux.gitRepository.branch":
 			cfg.Platform.Flux.GitRepository.Branch = value
+		case "platform.flux.source":
+			cfg.Platform.Flux.Source = value
+		case "platform.flux.ociRepository.url":
+			cfg.Platform.Flux.OCIRepository.URL = value
+		case "platform.flux.ociRepository.tag":
+			cfg.Platform.Flux.OCIRepository.Tag = value
+		case "platform.flux.ociRepository.insecure":
+			insecure, err := parseBoolOverride(key, value)
+			if err != nil {
+				return err
+			}
+			cfg.Platform.Flux.OCIRepository.Insecure = insecure
 		case "platform.flux.pathPrefix":
 			cfg.Platform.Flux.PathPrefix = value
 		default:
@@ -65,6 +77,10 @@ func SupportedOverrideKeys() []string {
 		"platform.cilium.version",
 		"platform.flux.gitRepository.url",
 		"platform.flux.gitRepository.branch",
+		"platform.flux.source",
+		"platform.flux.ociRepository.url",
+		"platform.flux.ociRepository.tag",
+		"platform.flux.ociRepository.insecure",
 		"platform.flux.pathPrefix",
 	}
 }

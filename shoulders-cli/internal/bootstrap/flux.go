@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-const fluxInstallURL = "https://github.com/fluxcd/flux2/releases/download/v2.8.3/install.yaml"
+const FluxInstallURL = "https://github.com/fluxcd/flux2/releases/download/v2.8.3/install.yaml"
 
 const fluxPlatformConfigName = "shoulders-platform-config"
 
@@ -26,21 +26,90 @@ var fluxKustomizationGVR = schema.GroupVersionResource{
 	Resource: "kustomizations",
 }
 
-func EnsureFlux(ctx context.Context, kubeconfigPath, repoURL, branch, pathPrefix, profile string, publicConfig PublicDomainConfig) error {
-	manifest, err := downloadFluxManifest(ctx)
+var fluxGitRepositoryGVR = schema.GroupVersionResource{
+	Group:    "source.toolkit.fluxcd.io",
+	Version:  "v1",
+	Resource: "gitrepositories",
+}
+
+var fluxOCIRepositoryGVR = schema.GroupVersionResource{
+	Group:    "source.toolkit.fluxcd.io",
+	Version:  "v1",
+	Resource: "ocirepositories",
+}
+
+// FluxSource selects which Flux source controller object the Shoulders
+// Kustomizations reconcile from. Kind is config.FluxSourceGit ("git") or
+// config.FluxSourceOCI ("oci"). The OCI artifact carries the same directory
+// layout as the git repo, so Kustomization paths are identical — only
+// sourceRef.kind and the managed source object differ.
+type FluxSource struct {
+	Kind        string
+	GitURL      string
+	GitBranch   string
+	OCIURL      string
+	OCITag      string
+	OCIInsecure bool
+	PathPrefix  string
+	Profile     string
+}
+
+// FluxSourceFromConfig builds the FluxSource for an install from CLI config.
+func FluxSourceFromConfig(cfg *config.Config, profile string) FluxSource {
+	if cfg == nil {
+		return FluxSource{Kind: config.FluxSourceGit, PathPrefix: ".", Profile: profile}
+	}
+	src := FluxSource{
+		Kind:        cfg.FluxSource(),
+		GitURL:      cfg.FluxRepositoryURL(),
+		GitBranch:   cfg.FluxRepositoryBranch(),
+		OCIURL:      cfg.FluxOCIURL(),
+		OCITag:      cfg.FluxOCITag(),
+		OCIInsecure: cfg.FluxOCIInsecure(),
+		PathPrefix:  cfg.FluxPathPrefix(),
+		Profile:     profile,
+	}
+	if src.Kind == "" {
+		src.Kind = config.FluxSourceGit
+	}
+	if src.PathPrefix == "" {
+		src.PathPrefix = "."
+	}
+	return src
+}
+
+func (s FluxSource) sourceRefKind() string {
+	if s.Kind == config.FluxSourceOCI {
+		return "OCIRepository"
+	}
+	return "GitRepository"
+}
+
+func EnsureFlux(ctx context.Context, kubeconfigPath string, source FluxSource, publicConfig PublicDomainConfig) error {
+	manifest, err := DownloadFluxManifest(ctx)
 	if err != nil {
 		return err
 	}
+	return EnsureFluxWithManifest(ctx, kubeconfigPath, source, publicConfig, manifest)
+}
+
+// EnsureFluxWithManifest installs Flux like EnsureFlux but applies a
+// pre-fetched install manifest (airgap installs vendor it into the bundle)
+// instead of downloading it.
+func EnsureFluxWithManifest(ctx context.Context, kubeconfigPath string, source FluxSource, publicConfig PublicDomainConfig, manifest []byte) error {
 	if err := kube.ApplyManifest(ctx, kubeconfigPath, manifest, ""); err != nil {
 		return fmt.Errorf("apply flux install manifest: %w", err)
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(profile, publicConfig), "flux-system"); err != nil {
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(source.Profile, publicConfig), "flux-system"); err != nil {
 		return fmt.Errorf("apply flux platform config: %w", err)
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxGitRepositoryManifest(repoURL, branch), "flux-system"); err != nil {
-		return fmt.Errorf("apply flux git repository: %w", err)
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxSourceManifest(source), "flux-system"); err != nil {
+		return fmt.Errorf("apply flux source: %w", err)
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifest(pathPrefix, profile), "flux-system"); err != nil {
+	if err := deleteInactiveFluxSource(ctx, kubeconfigPath, source); err != nil {
+		return err
+	}
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(source.PathPrefix, source.Profile, source.sourceRefKind()), "flux-system"); err != nil {
 		return fmt.Errorf("apply flux config: %w", err)
 	}
 	return nil
@@ -56,8 +125,10 @@ func UninstallShouldersFlux(ctx context.Context, kubeconfigPath, pathPrefix stri
 	}
 
 	for _, profile := range []string{config.ProfileSmall, config.ProfileMedium, config.ProfileLarge} {
-		if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxKustomizationsManifest(pathPrefix, profile), "flux-system"); err != nil {
-			return fmt.Errorf("delete flux kustomizations for profile %s: %w", profile, err)
+		for _, sourceRefKind := range []string{"GitRepository", "OCIRepository"} {
+			if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind), "flux-system"); err != nil {
+				return fmt.Errorf("delete flux kustomizations for profile %s source %s: %w", profile, sourceRefKind, err)
+			}
 		}
 	}
 	if err := waitForFluxKustomizationsDeleted(ctx, kubeconfigPath); err != nil {
@@ -66,10 +137,35 @@ func UninstallShouldersFlux(ctx context.Context, kubeconfigPath, pathPrefix stri
 	if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(config.ProfileMedium, PublicDomainConfig{}), "flux-system"); err != nil {
 		return fmt.Errorf("delete flux platform config: %w", err)
 	}
-	if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxGitRepositoryManifest("", ""), "flux-system"); err != nil {
+	if err := deleteFluxSourceObject(ctx, kubeconfigPath, fluxGitRepositoryGVR); err != nil {
 		return fmt.Errorf("delete flux git repository: %w", err)
 	}
+	if err := deleteFluxSourceObject(ctx, kubeconfigPath, fluxOCIRepositoryGVR); err != nil {
+		return fmt.Errorf("delete flux oci repository: %w", err)
+	}
 	return nil
+}
+
+func deleteInactiveFluxSource(ctx context.Context, kubeconfigPath string, source FluxSource) error {
+	if source.Kind == config.FluxSourceOCI {
+		return deleteFluxSourceObject(ctx, kubeconfigPath, fluxGitRepositoryGVR)
+	}
+	return deleteFluxSourceObject(ctx, kubeconfigPath, fluxOCIRepositoryGVR)
+}
+
+func deleteFluxSourceObject(ctx context.Context, kubeconfigPath string, gvr schema.GroupVersionResource) error {
+	client, err := kube.NewDynamicClient(kubeconfigPath)
+	if err != nil {
+		return fmt.Errorf("create dynamic client: %w", err)
+	}
+	err = client.Resource(gvr).Namespace("flux-system").Delete(ctx, "flux-system", metav1.DeleteOptions{})
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "not found") || strings.Contains(strings.ToLower(err.Error()), "could not find") || strings.Contains(strings.ToLower(err.Error()), "no matches") {
+		return nil
+	}
+	return err
 }
 
 func fluxAPIsInstalled(kubeconfigPath string) (bool, error) {
@@ -97,6 +193,13 @@ func fluxAPIsInstalled(kubeconfigPath string) (bool, error) {
 	return hasKustomize && hasSource, nil
 }
 
+func fluxSourceManifest(source FluxSource) []byte {
+	if source.Kind == config.FluxSourceOCI {
+		return fluxOCIRepositoryManifest(source.OCIURL, source.OCITag, source.OCIInsecure)
+	}
+	return fluxGitRepositoryManifest(source.GitURL, source.GitBranch)
+}
+
 func fluxGitRepositoryManifest(repoURL, branch string) []byte {
 	return []byte(fmt.Sprintf(`apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -111,8 +214,49 @@ spec:
 `, repoURL, branch))
 }
 
+func fluxOCIRepositoryManifest(ociURL, tag string, insecure bool) []byte {
+	var builder strings.Builder
+	builder.WriteString("apiVersion: source.toolkit.fluxcd.io/v1\n")
+	builder.WriteString("kind: OCIRepository\n")
+	builder.WriteString("metadata:\n")
+	builder.WriteString("  name: flux-system\n")
+	builder.WriteString("  namespace: flux-system\n")
+	builder.WriteString("spec:\n")
+	builder.WriteString("  interval: 1m\n")
+	fmt.Fprintf(&builder, "  url: %q\n", strings.TrimSpace(ociURL))
+	builder.WriteString("  ref:\n")
+	fmt.Fprintf(&builder, "    tag: %q\n", strings.TrimSpace(tag))
+	if insecure {
+		builder.WriteString("  insecure: true\n")
+	}
+	return []byte(builder.String())
+}
+
+// ApplyFluxSourceAndKustomizations re-applies the Flux source object and the
+// profile Kustomizations without reinstalling Flux itself. Used by `sync`
+// after pushing a new OCI artifact tag.
+func ApplyFluxSourceAndKustomizations(ctx context.Context, kubeconfigPath string, source FluxSource) error {
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxSourceManifest(source), "flux-system"); err != nil {
+		return fmt.Errorf("apply flux source: %w", err)
+	}
+	if err := deleteInactiveFluxSource(ctx, kubeconfigPath, source); err != nil {
+		return err
+	}
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(source.PathPrefix, source.Profile, source.sourceRefKind()), "flux-system"); err != nil {
+		return fmt.Errorf("apply flux config: %w", err)
+	}
+	return nil
+}
+
 func fluxKustomizationsManifest(pathPrefix, profile string) []byte {
+	return fluxKustomizationsManifestForSource(pathPrefix, profile, "GitRepository")
+}
+
+func fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind string) []byte {
 	items := fluxKustomizationsForProfile(pathPrefix, profile)
+	if sourceRefKind == "" {
+		sourceRefKind = "GitRepository"
+	}
 
 	var builder strings.Builder
 	for index, item := range items {
@@ -132,7 +276,7 @@ func fluxKustomizationsManifest(pathPrefix, profile string) []byte {
 			builder.WriteString("  wait: true\n")
 		}
 		builder.WriteString("  sourceRef:\n")
-		builder.WriteString("    kind: GitRepository\n")
+		fmt.Fprintf(&builder, "    kind: %s\n", sourceRefKind)
 		builder.WriteString("    name: flux-system\n")
 		if item.Substitute {
 			builder.WriteString("  postBuild:\n")
@@ -272,8 +416,8 @@ func waitForFluxKustomizationsDeleted(ctx context.Context, kubeconfigPath string
 	})
 }
 
-func downloadFluxManifest(ctx context.Context) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fluxInstallURL, nil)
+func DownloadFluxManifest(ctx context.Context) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, FluxInstallURL, nil)
 	if err != nil {
 		return nil, err
 	}

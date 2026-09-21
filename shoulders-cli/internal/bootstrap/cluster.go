@@ -231,6 +231,13 @@ func vindContainerNames(ctx context.Context, name string) ([]string, error) {
 	return append(names, workers...), nil
 }
 
+// VindContainers returns the Docker container names for a vind cluster
+// (control plane first, then sorted workers). Exported for airgap image
+// imports, which address the node containers directly.
+func VindContainers(ctx context.Context, name string) ([]string, error) {
+	return vindContainerNames(ctx, name)
+}
+
 // ListClusters returns the names of all vind clusters by inspecting Docker
 // containers whose names start with the vind control-plane prefix.
 func ListClusters() ([]string, error) {

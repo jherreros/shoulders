@@ -162,9 +162,14 @@ platform:
     enabled: true
     version: "1.19.2"
   flux:
+    source: git             # git | oci
     gitRepository:
       url: "https://github.com/jherreros/shoulders.git"
       branch: "main"
+    ociRepository:
+      url: ""               # e.g. oci://registry.example.com/shoulders/addons (required when source: oci)
+      tag: ""               # immutable artifact tag, not latest (required when source: oci)
+      insecure: false       # true for plain-HTTP registries (e.g. the automatic vind local registry)
     pathPrefix: "."
 ```
 
@@ -176,7 +181,49 @@ Notes:
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
-- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, and `platform.flux.pathPrefix`.
+- `platform.flux.source: oci` with `ociRepository.url`/`tag` reconciles the same Kustomization paths from a pre-pushed OCI artifact (same directory layout, immutable tag) instead of git. Useful for local dirty-tree iteration and airgap installs once the snapshot push (Phase 1) and bundle vendoring (Phase 2) land.
+
+### Local iteration with OCI snapshots
+
+From a Shoulders checkout, test addon changes without pushing to GitHub:
+
+```bash
+shoulders up --local     # fresh cluster, Flux reconciles from your working tree (dirty files included)
+# ... edit 2-addons/... ...
+shoulders sync           # push a new snapshot tag and wait for Flux to reconcile
+shoulders sync --wait=false  # push and request reconcile without blocking (~seconds)
+```
+
+`sync` waits up to 10 minutes by default (`--timeout` overrides); the OCI coordinates are saved to your config only after a successful wait (or immediately with `--wait=false`, once push + apply + reconcile-request succeed).
+
+On `vind` with no `ociRepository.url` configured, both commands create a throwaway in-cluster registry automatically and pull over plain HTTP (`insecure: true` is recorded in your config). On other clusters, set `platform.flux.ociRepository.url` to a registry reachable from both your laptop and the cluster first. Every snapshot gets an immutable `local-<sha>-<timestamp>[-dirty]` tag so Flux never serves stale content. The raw script path mirrors this via `SHOULDERS_FLUX_SOURCE=oci SHOULDERS_OCI_URL=... SHOULDERS_OCI_TAG=... 2-addons/install-addons.sh`.
+
+Note: the automatic local registry now keeps its storage on a 5Gi persistent volume, so snapshots survive `stop`/`start` cycles. If the registry data is ever lost (or the registry deleted), `shoulders start` re-pushes the persisted tag automatically when run from a checkout — otherwise it warns and `shoulders sync` restores it.
+
+### Airgap installs with bundles
+
+Two-stage flow. Online, against a healthy cluster, vendor everything the platform needs:
+
+```bash
+shoulders vendor -o shoulders-bundle.tar.gz
+```
+
+This resolves all Helm charts (union across profiles, so one bundle serves small/medium/large), harvests every container image from the cluster, and packs them with the addon manifests and the Flux install manifest. Requires `helm` chart access, `git`, `skopeo`, and `docker`. The bundle records image digests and the vendored commit for provenance.
+
+Offline, install from the bundle file (vind only — image import into nodes is automatic):
+
+```bash
+shoulders up --bundle shoulders-bundle.tar.gz
+```
+
+The installer imports images into the vind nodes, serves charts from the local registry (HelmReleases are rewritten to OCI references at install time), installs Flux from the vendored manifest, and reconciles the staged snapshot. No GitHub, Helm repo, or container registry egress is needed.
+
+Known limitations (documented divergences, not bugs):
+- Headlamp's plugin sidecar installs plugins from npm/ArtifactHub at every pod start, so bundle installs disable `pluginsManager` (Headlamp itself works; the Shoulders portal plugin is unavailable offline). The `pluginsManager.version` pin keeps online installs reproducible.
+- Trivy vulnerability databases download at runtime; scanning degrades gracefully offline.
+- `provider: existing` + `--bundle` is rejected: images must be pre-mirrored by other tooling (the bundle's image list is the manifest to mirror).
+- vind freezes cluster DNS state at creation; `shoulders start` reconciles CoreDNS forwarding against the machine's current nameservers on every boot.
+- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, `platform.flux.source`, `platform.flux.ociRepository.url`, `platform.flux.ociRepository.tag`, and `platform.flux.pathPrefix`.
 - On `provider: existing`, `shoulders down` removes the Flux-managed Shoulders platform from the current cluster. If `platform.cilium.enabled: true`, it also uninstalls the `cilium` Helm release from `kube-system`.
 
 Profile summary:
@@ -198,6 +245,8 @@ shoulders down                          # Delete the vind cluster or uninstall S
 shoulders start                         # Start a previously stopped vind cluster
 shoulders stop                          # Stop the local vind cluster without deleting it
 shoulders status                        # Cluster and platform health (nodes, pods, Flux, Crossplane, Gateway)
+shoulders sync                          # Push working tree as OCI artifact and reconcile Flux
+shoulders vendor                        # Build a self-contained airgap bundle (online step)
 
 shoulders workspace create <name>       # Create a Workspace
 shoulders workspace list                # List Workspaces

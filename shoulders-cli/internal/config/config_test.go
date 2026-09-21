@@ -275,4 +275,84 @@ func TestExampleYAMLIsValid(t *testing.T) {
 	if cfg.FluxPathPrefix() != "." {
 		t.Fatalf("expected default path prefix '.', got %s", cfg.FluxPathPrefix())
 	}
+	if cfg.FluxSource() != FluxSourceGit {
+		t.Fatalf("expected default flux source git, got %s", cfg.FluxSource())
+	}
+}
+
+func TestFluxSourceDefaultsToGit(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.FluxSource() != FluxSourceGit {
+		t.Fatalf("expected default flux source git, got %s", cfg.FluxSource())
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should validate: %v", err)
+	}
+}
+
+func TestFluxSourceOCIOverrides(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "missing.yaml")
+
+	loaded, err := LoadWithOverrides([]string{
+		"platform.flux.source=oci",
+		"platform.flux.ociRepository.url=oci://registry.example.com/shoulders/addons",
+		"platform.flux.ociRepository.tag=local-abc123",
+	}, configPath)
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if loaded.FluxSource() != FluxSourceOCI {
+		t.Fatalf("expected oci source, got %s", loaded.FluxSource())
+	}
+	if loaded.FluxOCIURL() != "oci://registry.example.com/shoulders/addons" {
+		t.Fatalf("expected oci url override, got %s", loaded.FluxOCIURL())
+	}
+	if loaded.FluxOCITag() != "local-abc123" {
+		t.Fatalf("expected oci tag override, got %s", loaded.FluxOCITag())
+	}
+}
+
+func TestFluxSourceOCIInsecureOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "missing.yaml")
+
+	loaded, err := LoadWithOverrides([]string{
+		"platform.flux.source=oci",
+		"platform.flux.ociRepository.url=oci://example.com/shoulders",
+		"platform.flux.ociRepository.tag=v1",
+		"platform.flux.ociRepository.insecure=true",
+	}, configPath)
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if !loaded.FluxOCIInsecure() {
+		t.Fatalf("expected insecure oci override to be true")
+	}
+	if _, err := LoadWithOverrides([]string{"platform.flux.ociRepository.insecure=maybe"}, configPath); err == nil {
+		t.Fatalf("expected invalid insecure override to fail")
+	}
+}
+
+func TestFluxSourceOCIValidation(t *testing.T) {
+	cases := map[string]Config{
+		"unknown source": {Platform: PlatformConfig{Flux: FluxConfig{Source: "bucket"}}},
+		"oci without url": {Platform: PlatformConfig{Flux: FluxConfig{
+			Source: FluxSourceOCI, OCIRepository: OCIRepositoryConfig{Tag: "v1"},
+		}}},
+		"oci without tag": {Platform: PlatformConfig{Flux: FluxConfig{
+			Source: FluxSourceOCI, OCIRepository: OCIRepositoryConfig{URL: "oci://example.com/repo"},
+		}}},
+		"oci without scheme": {Platform: PlatformConfig{Flux: FluxConfig{
+			Source: FluxSourceOCI, OCIRepository: OCIRepositoryConfig{URL: "example.com/repo", Tag: "v1"},
+		}}},
+	}
+	for name, cfg := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg.ApplyDefaults()
+			if err := cfg.Validate(); err == nil {
+				t.Fatalf("expected validation error for %s", name)
+			}
+		})
+	}
 }

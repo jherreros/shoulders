@@ -66,4 +66,7 @@ spec:
           parallel: true
           maxConcurrent: 2
       baseImage: public.ecr.aws/docker/library/node:24-alpine
-      version: latest
+      # Pinned for reproducible installs. NOTE: the plugin sidecar still
+      # needs npm/ArtifactHub egress at runtime; airgap installs disable
+      # pluginsManager (see bundle install docs).
+      version: 0.1.1

@@ -21,8 +21,7 @@ const (
 	apiserverRestartTimeout = 2 * time.Minute
 )
 
-func WaitForDeploymentReady(kubeconfig, namespace, name string, timeout time.Duration) error {
-	clientset, err := kube.NewClientset(kubeconfig)
+func WaitForDeploymentReady(kubeconfig, namespace, name string, timeout time.Duration) error {	clientset, err := kube.NewClientset(kubeconfig)
 	if err != nil {
 		return err
 	}
@@ -37,6 +36,32 @@ func WaitForDeploymentReady(kubeconfig, namespace, name string, timeout time.Dur
 	}
 
 	return fmt.Errorf("deployment %s/%s did not become ready within %s", namespace, name, timeout)
+}
+
+// WaitForDaemonSetReady polls until the DaemonSet has a ready pod per
+// desired node. Used for Cilium: with kubeProxyReplacement the agents must
+// be running before ClusterIP routing (local registry pulls) works.
+func WaitForDaemonSetReady(kubeconfig, namespace, name string, timeout time.Duration) error {
+	clientset, err := kube.NewClientset(kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		daemonSet, err := clientset.AppsV1().DaemonSets(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		if err == nil && daemonSetReady(daemonSet) {
+			return nil
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("daemonset %s/%s did not become ready within %s", namespace, name, timeout)
+}
+
+func daemonSetReady(daemonSet *appsv1.DaemonSet) bool {
+	return daemonSet.Status.DesiredNumberScheduled > 0 &&
+		daemonSet.Status.NumberReady == daemonSet.Status.DesiredNumberScheduled
 }
 
 func WaitForStatefulSetReady(kubeconfig, namespace, name string, timeout time.Duration) error {

@@ -110,3 +110,18 @@ shoulders infra add-stream ecommerce-events --topics "orders,inventory,notificat
 ```bash
 shoulders app init demo-test --image nginx --dry-run
 ```
+
+## Local platform iteration (no git push)
+
+```bash
+shoulders up --local
+# ... edit 2-addons/... ...
+shoulders sync
+```
+
+## Airgap bundle (online vendor, offline install)
+
+```bash
+shoulders vendor -o shoulders-bundle.tar.gz
+shoulders up --bundle shoulders-bundle.tar.gz
+```

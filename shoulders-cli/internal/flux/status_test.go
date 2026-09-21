@@ -55,3 +55,23 @@ func TestFormatPendingIncludesDetails(t *testing.T) {
 		t.Fatalf("unexpected pending summary: %q", summary)
 	}
 }
+
+func TestFirstSourcePullFailure(t *testing.T) {
+	pending := []SourceReadiness{
+		{Kind: "OCIRepository", Name: "flux-system", Reason: "ArtifactPullFailed", Message: "artifact pull failed: repository not found"},
+	}
+	failure, ok := FirstSourcePullFailure(pending)
+	if !ok {
+		t.Fatalf("expected source pull failure")
+	}
+	if failure.Name != "flux-system" {
+		t.Fatalf("expected flux-system failure, got %q", failure.Name)
+	}
+
+	healthy := []SourceReadiness{
+		{Kind: "GitRepository", Name: "flux-system", Reason: "Progressing", Message: "reconciliation in progress"},
+	}
+	if _, ok := FirstSourcePullFailure(healthy); ok {
+		t.Fatalf("did not expect a pull failure for in-progress source")
+	}
+}

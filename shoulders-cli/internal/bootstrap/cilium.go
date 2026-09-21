@@ -40,6 +40,13 @@ func CiliumOptionsForProfile(profile string) CiliumOptions {
 }
 
 func EnsureCilium(kubeconfigPath, version string, options CiliumOptions) error {
+	return EnsureCiliumWithChart(kubeconfigPath, version, options, "")
+}
+
+// EnsureCiliumWithChart installs Cilium like EnsureCilium but loads the chart
+// from a local .tgz file when chartFile is set (airgap installs), instead of
+// resolving it from the Helm repository cache.
+func EnsureCiliumWithChart(kubeconfigPath, version string, options CiliumOptions, chartFile string) error {
 	settings := helmcli.New()
 	if kubeconfigPath != "" {
 		settings.KubeConfig = kubeconfigPath
@@ -51,9 +58,13 @@ func EnsureCilium(kubeconfigPath, version string, options CiliumOptions) error {
 		return err
 	}
 
-	chartPath, err := locateChart(settings, version)
-	if err != nil {
-		return err
+	chartPath := chartFile
+	if chartPath == "" {
+		located, err := locateChart(settings, version)
+		if err != nil {
+			return err
+		}
+		chartPath = located
 	}
 
 	chart, err := loader.Load(chartPath)

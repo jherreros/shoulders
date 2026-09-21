@@ -75,6 +75,8 @@ Shoulders supports `platform.profile: small|medium|large` in the CLI config. `me
 | View logs | `shoulders logs <app-name>` |
 | Check status | `shoulders status [--wait]` |
 | Dry-run | `shoulders app init <name> --image <img> --dry-run` |
+| Iterate on platform | `shoulders up --local` / `shoulders sync [--wait=false]` |
+| Airgap bundle | `shoulders vendor -o bundle.tar.gz` / `shoulders up --bundle bundle.tar.gz` |
 | Delete resource | `shoulders app delete <name>` / `shoulders infra delete <name>` |
 
 For full CLI reference with all flags and details, see [cli-reference](./references/cli-reference.md).

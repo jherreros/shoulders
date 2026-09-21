@@ -63,6 +63,82 @@ func TestFluxKustomizationsManifestLargeUsesLargeHelmReleases(t *testing.T) {
 	}
 }
 
+func TestFluxKustomizationsManifestOCIMirrorsGitPaths(t *testing.T) {
+	for _, profile := range []string{config.ProfileSmall, config.ProfileMedium, config.ProfileLarge} {
+		gitManifest := string(fluxKustomizationsManifestForSource(".", profile, "GitRepository"))
+		ociManifest := string(fluxKustomizationsManifestForSource(".", profile, "OCIRepository"))
+		assertYAMLDocuments(t, ociManifest)
+
+		if !strings.Contains(ociManifest, "kind: OCIRepository") {
+			t.Fatalf("expected OCI manifest for profile %s to use OCIRepository sourceRef\n%s", profile, ociManifest)
+		}
+		if strings.Contains(ociManifest, "kind: GitRepository") {
+			t.Fatalf("expected OCI manifest for profile %s to have no GitRepository sourceRef\n%s", profile, ociManifest)
+		}
+		// Same paths, only the sourceRef kind differs.
+		normalize := func(manifest string) string {
+			manifest = strings.ReplaceAll(manifest, "kind: OCIRepository", "kind: SOURCEREF")
+			return strings.ReplaceAll(manifest, "kind: GitRepository", "kind: SOURCEREF")
+		}
+		if normalize(gitManifest) != normalize(ociManifest) {
+			t.Fatalf("expected OCI and git manifests for profile %s to differ only in sourceRef kind", profile)
+		}
+	}
+}
+
+func TestFluxOCIRepositoryManifest(t *testing.T) {
+	manifest := string(fluxOCIRepositoryManifest("oci://registry.example.com/shoulders/addons", "local-abc123-1234567890", false))
+	assertYAMLDocuments(t, manifest)
+	for _, want := range []string{
+		"kind: OCIRepository",
+		"url: \"oci://registry.example.com/shoulders/addons\"",
+		"tag: \"local-abc123-1234567890\"",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("expected OCI repository manifest to contain %q\n%s", want, manifest)
+		}
+	}
+	if strings.Contains(manifest, "insecure: true") {
+		t.Fatalf("expected secure OCI manifest to omit insecure\n%s", manifest)
+	}
+
+	insecureManifest := string(fluxOCIRepositoryManifest("oci://shoulders-registry.flux-system.svc.cluster.local:5000/shoulders/addons", "local-abc123", true))
+	assertYAMLDocuments(t, insecureManifest)
+	if !strings.Contains(insecureManifest, "insecure: true") {
+		t.Fatalf("expected insecure OCI manifest to set insecure: true\n%s", insecureManifest)
+	}
+}
+
+func TestFluxSourceManifestDispatch(t *testing.T) {
+	git := FluxSource{Kind: config.FluxSourceGit, GitURL: "https://example.com/repo.git", GitBranch: "main"}
+	if manifest := string(fluxSourceManifest(git)); !strings.Contains(manifest, "kind: GitRepository") {
+		t.Fatalf("expected git source manifest to be a GitRepository\n%s", manifest)
+	}
+	oci := FluxSource{Kind: config.FluxSourceOCI, OCIURL: "oci://example.com/repo", OCITag: "v1"}
+	if manifest := string(fluxSourceManifest(oci)); !strings.Contains(manifest, "kind: OCIRepository") {
+		t.Fatalf("expected oci source manifest to be an OCIRepository\n%s", manifest)
+	}
+}
+
+func TestFluxSourceFromConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	src := FluxSourceFromConfig(cfg, config.ProfileMedium)
+	if src.Kind != config.FluxSourceGit {
+		t.Fatalf("expected default source git, got %q", src.Kind)
+	}
+	if src.PathPrefix != "." || src.Profile != config.ProfileMedium {
+		t.Fatalf("unexpected default source fields: %+v", src)
+	}
+
+	cfg.Platform.Flux.Source = "oci"
+	cfg.Platform.Flux.OCIRepository.URL = "oci://example.com/shoulders"
+	cfg.Platform.Flux.OCIRepository.Tag = "v1"
+	src = FluxSourceFromConfig(cfg, config.ProfileSmall)
+	if src.Kind != config.FluxSourceOCI || src.OCIURL != "oci://example.com/shoulders" || src.OCITag != "v1" {
+		t.Fatalf("unexpected OCI source fields: %+v", src)
+	}
+}
+
 func renderFluxKustomizationsManifest(t *testing.T, profile string) string {
 	t.Helper()
 	return string(fluxKustomizationsManifest(".", profile))

@@ -5,6 +5,11 @@
 ```bash
 shoulders up                              # Create cluster and install platform
 shoulders up --name <name>                # Use a specific cluster name
+shoulders up --local                      # Install from local working tree (OCI snapshot, dirty files included)
+shoulders up --bundle <file>              # Offline install from airgap bundle (vind only)
+shoulders sync                            # Push working tree as OCI artifact and reconcile Flux
+shoulders sync --wait=false               # Push without blocking on reconcile
+shoulders vendor -o bundle.tar.gz         # Build self-contained airgap bundle (online step)
 shoulders down                            # Delete the cluster
 shoulders start                           # Resume a stopped cluster
 shoulders stop                            # Stop cluster without deleting
@@ -16,6 +21,10 @@ shoulders update                          # Self-update the CLI
 ```
 
 Configuration supports `platform.profile: small|medium|large`. `medium` is the default. `small` is laptop-friendly and keeps the core IDP while omitting Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` before provisioning Kafka Event Streams or opening Policy Reporter.
+
+Flux reconciles from `platform.flux.source: git` by default, or `oci` for local iteration and airgap installs. On vind with no `ociRepository.url` configured, `up --local` and `sync` use an automatic in-cluster registry over plain HTTP. Every snapshot gets an immutable `local-<sha>-<timestamp>[-dirty]` tag. `shoulders start` re-pushes the persisted tag if registry storage was wiped, and reconciles CoreDNS forwarding against the machine's current nameservers.
+
+Airgap flow: online, run `shoulders vendor -o bundle.tar.gz` against a healthy cluster (vendored charts serve all profiles, images harvested from the cluster, requires `helm`, `git`, `skopeo`, `docker`). Offline, run `shoulders up --bundle bundle.tar.gz` (vind only; `provider: existing` + `--bundle` is rejected). Bundle installs disable Headlamp `pluginsManager` (needs npm/ArtifactHub egress) and Trivy DB downloads degrade gracefully.
 
 ## Workspace Management
 

@@ -7,6 +7,8 @@ require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/loft-sh/log v0.0.0-20250610153027-c2f046135b12
 	github.com/loft-sh/vcluster v0.36.0
+	github.com/opencontainers/go-digest v1.0.0
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/pterm/pterm v0.12.83
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
@@ -14,6 +16,7 @@ require (
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
 	k8s.io/client-go v0.36.2
+	oras.land/oras-go/v2 v2.6.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -185,8 +188,6 @@ require (
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runtime-spec v1.3.0 // indirect
 	github.com/otiai10/copy v1.11.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
@@ -283,7 +284,6 @@ require (
 	k8s.io/streaming v0.36.2 // indirect
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 // indirect
 	mvdan.cc/sh/v3 v3.6.0 // indirect
-	oras.land/oras-go/v2 v2.6.1 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect
 	sigs.k8s.io/controller-runtime v0.24.1 // indirect
 	sigs.k8s.io/gateway-api v1.5.1 // indirect
