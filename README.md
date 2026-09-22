@@ -185,7 +185,9 @@ Notes:
 
 ### Local iteration with OCI snapshots
 
-From a Shoulders checkout, test addon changes without pushing to GitHub:
+From a Shoulders checkout, test addon changes without pushing to GitHub.
+Contributors should develop this way by default; see CONTRIBUTING.md for the
+recommended loop and per-profile (small/medium/large) resource guidance.
 
 ```bash
 shoulders up --local     # fresh cluster, Flux reconciles from your working tree (dirty files included)
