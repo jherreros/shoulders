@@ -162,6 +162,17 @@ var upCmd = &cobra.Command{
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to restart stuck pods: %w", err)
 			}
+			if bundleMeta != nil {
+				// Bundle installs serve charts from the local registry in
+				// Phase 3, which needs schedulable nodes (registry PVC) and
+				// programmed ClusterIPs (kube-proxy replacement). Both only
+				// hold once the Cilium agents are Ready.
+				tracker.UpdateDetail(verboseDetail("waiting for cilium agents"))
+				if err := bootstrap.WaitForDaemonSetReady(kubeconfig, "kube-system", "cilium", 10*time.Minute); err != nil {
+					tracker.Fail(err.Error())
+					return fmt.Errorf("wait for cilium agents: %w", err)
+				}
+			}
 		}
 		tracker.Complete()
 
