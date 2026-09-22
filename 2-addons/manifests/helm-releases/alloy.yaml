@@ -15,7 +15,7 @@ spec:
         kind: HelmRepository
         name: grafana
         namespace: flux-system
-      version: "1.10.1"
+      version: "1.12.1"
   values:
     controller:
       type: daemonset
