@@ -18,58 +18,76 @@ spec:
           properties:
             spec:
               type: object
+              description: Desired state of the data services. PostgreSQL, Redis and object storage can be enabled independently.
               properties:
                 postgresql:
                   type: object
+                  description: PostgreSQL database provisioned via CloudNativePG.
                   properties:
                     enabled:
                       type: boolean
+                      description: Enable the CloudNativePG Cluster.
                       default: true
                     storage:
                       type: string
+                      description: PVC storage size for each PostgreSQL instance.
                       default: 1Gi
                     database:
                       type: string
+                      description: Bootstrap application database.
                       default: app
                     secretName:
                       type: string
+                      description: Secret holding the app username and password. Defaults to <statestore>-app-secret.
                     username:
                       type: string
+                      description: Application database user.
                       default: app
                     password:
                       type: string
+                      description: Application database password. Change from the default outside local development.
                       default: password
                     databases:
                       type: array
+                      description: Additional databases to create, owned by the app user.
                       items:
                         type: string
                     initSQL:
                       type: array
+                      description: Bootstrap SQL statements run against the application database.
                       items:
                         type: string
                 redis:
                   type: object
+                  description: Redis cache (Deployment plus Service).
                   properties:
                     enabled:
                       type: boolean
+                      description: Enable Redis.
                       default: true
                     replicas:
                       type: integer
+                      description: Number of Redis replicas.
                       default: 1
                 objectStorage:
                   type: object
+                  description: S3-compatible buckets provisioned via Garage.
                   properties:
                     enabled:
                       type: boolean
+                      description: Enable Garage bucket provisioning.
                       default: false
                     endpoint:
                       type: string
+                      description: S3 endpoint recorded in the generated Secrets.
                       default: http://garage.garage.svc.cluster.local:3900
                     region:
                       type: string
+                      description: S3 region recorded in the generated Secrets.
                       default: garage
                     buckets:
                       type: array
+                      description: Bucket definitions to provision.
                       items:
                         type: object
                         required:
@@ -77,14 +95,19 @@ spec:
                         properties:
                           name:
                             type: string
+                            description: Garage bucket name.
                           secretName:
                             type: string
+                            description: Kubernetes Secret for the S3 credentials. Defaults to <bucket>-s3.
                           read:
                             type: boolean
+                            description: Grant read access on the bucket to the generated key.
                             default: true
                           write:
                             type: boolean
+                            description: Grant write access on the bucket to the generated key.
                             default: true
                           owner:
                             type: boolean
+                            description: Grant owner access on the bucket to the generated key.
                             default: false

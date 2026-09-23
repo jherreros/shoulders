@@ -18,3 +18,4 @@ spec:
           properties:
             spec:
               type: object
+              description: Workspace configuration. Currently no fields; the workspace name carries the tenant identity and drives the namespace, network policy and naming guardrails.

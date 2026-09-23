@@ -18,96 +18,122 @@ spec:
           properties:
             spec:
               type: object
+              description: Desired state of the web application.
               properties:
                 image:
                   type: string
+                  description: Container image repository for the application (without tag).
                 tag:
                   type: string
+                  description: Image tag to deploy.
                 replicas:
                   type: integer
+                  description: Number of pod replicas in the Deployment.
                   default: 1
                   minimum: 0
                 host:
                   type: string
+                  description: Public hostname for Gateway API routing. Omit (with route.enabled set to false) for internal-only services.
                 port:
                   type: integer
+                  description: Container port the Service targets.
                   default: 80
                   minimum: 1
                   maximum: 65535
                 imagePullPolicy:
                   type: string
+                  description: Image pull policy for the application container.
                   enum:
                     - Always
                     - IfNotPresent
                     - Never
                 command:
                   type: array
+                  description: Container entrypoint command, overriding the image default.
                   items:
                     type: string
                 args:
                   type: array
+                  description: Arguments to the container entrypoint.
                   items:
                     type: string
                 service:
                   type: object
+                  description: Kubernetes Service fronting the Deployment.
                   properties:
                     port:
                       type: integer
+                      description: Service port exposed inside the cluster.
                       default: 80
                       minimum: 1
                       maximum: 65535
                 route:
                   type: object
+                  description: Public Gateway API routing for the application.
                   properties:
                     enabled:
                       type: boolean
+                      description: Create the HTTPRoute when a host is set. Disable for internal-only services.
                       default: true
                     gatewayName:
                       type: string
+                      description: Gateway resource the HTTPRoute attaches to.
                       default: cilium-gateway
                     gatewayNamespace:
                       type: string
+                      description: Namespace of the Gateway resource.
                       default: kube-system
                 env:
                   type: array
+                  description: Environment variables for the container (Kubernetes EnvVar style).
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 envFrom:
                   type: array
+                  description: Environment variables sourced from ConfigMaps or Secrets (Kubernetes EnvFromSource style).
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 volumeMounts:
                   type: array
+                  description: Volume mounts for the application container.
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 volumes:
                   type: array
+                  description: Volumes for the pod, including Secret and emptyDir volumes.
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 readinessProbe:
                   type: object
+                  description: Readiness probe for the container (Kubernetes Probe style).
                   x-kubernetes-preserve-unknown-fields: true
                 livenessProbe:
                   type: object
+                  description: Liveness probe for the container (Kubernetes Probe style).
                   x-kubernetes-preserve-unknown-fields: true
                 startupProbe:
                   type: object
+                  description: Startup probe for the container (Kubernetes Probe style).
                   x-kubernetes-preserve-unknown-fields: true
                 resources:
                   type: object
+                  description: CPU and memory requests and limits for the container.
                   x-kubernetes-preserve-unknown-fields: true
                 podSecurityContext:
                   type: object
+                  description: Security settings for the pod.
                   x-kubernetes-preserve-unknown-fields: true
                 securityContext:
                   type: object
+                  description: Security settings for the application container.
                   x-kubernetes-preserve-unknown-fields: true
                 serviceAccountName:
                   type: string
+                  description: ServiceAccount the application pods run as.
               required:
                 - image
                 - tag

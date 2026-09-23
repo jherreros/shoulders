@@ -18,22 +18,28 @@ spec:
           properties:
             spec:
               type: object
+              description: Desired state of the Kafka cluster and its topics. Provisions a 3-node KRaft cluster with plain and TLS listeners.
               properties:
                 topics:
                   type: array
+                  description: Kafka topics to create in the provisioned cluster.
                   items:
                     type: object
                     properties:
                       name:
                         type: string
+                        description: Topic name.
                       partitions:
                         type: integer
+                        description: Partitions for the topic.
                         default: 3
                       replicas:
                         type: integer
+                        description: Replication factor for the topic.
                         default: 3
                       config:
                         type: object
+                        description: Arbitrary Kafka topic configuration (for example retention.ms).
                         x-kubernetes-preserve-unknown-fields: true
                     required:
                       - name

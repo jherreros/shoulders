@@ -15,6 +15,7 @@ var Version = "dev"
 
 // Commands that do not require a shoulders cluster context.
 var skipClusterCheck = map[string]bool{
+	"docs":      true,
 	"down":    true,
 	"init":    true,
 	"up":      true,
@@ -82,6 +83,7 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(skillCmd)
+	rootCmd.AddCommand(docsCmd)
 }
 
 func outputOption() (output.Format, error) {

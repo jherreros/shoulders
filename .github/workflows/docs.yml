@@ -1,0 +1,70 @@
+name: Docs site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - '2-addons/manifests/crossplane/definitions/**'
+      - 'shoulders-cli/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Set up Go (CLI + API reference generation)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: shoulders-cli/go.mod
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate CLI + API reference
+        run: npm run gen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: website/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}shoulders/
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

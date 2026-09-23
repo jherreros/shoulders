@@ -1,0 +1,448 @@
+/* Landing page — investor-pitch styling. Scoped to this page via CSS modules. */
+
+.hero {
+  background:
+    radial-gradient(60rem 30rem at 85% -10%, rgba(124, 93, 250, 0.35), transparent 60%),
+    radial-gradient(50rem 26rem at 10% 110%, rgba(45, 212, 191, 0.18), transparent 60%),
+    linear-gradient(180deg, #0d1129 0%, #141a3d 100%);
+  color: #eef0ff;
+  padding: 5.5rem 0 4.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+@media screen and (max-width: 996px) {
+  .heroGrid {
+    grid-template-columns: 1fr;
+  }
+  .hero {
+    padding: 3rem 0;
+  }
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c9d1ff;
+  border: 1px solid rgba(201, 209, 255, 0.35);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  margin-bottom: 1.25rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.heroTitle {
+  font-size: 3.2rem;
+  line-height: 1.05;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 1rem;
+}
+
+@media screen and (max-width: 996px) {
+  .heroTitle {
+    font-size: 2.4rem;
+  }
+}
+
+.gradient {
+  background: linear-gradient(90deg, #a78bfa, #2dd4bf);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.heroSubtitle {
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: #c3c9ec;
+  max-width: 36rem;
+}
+
+.heroSubtitle code {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ctaRow {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-top: 1.75rem;
+}
+
+.ctaPrimary {
+  display: inline-block;
+  background: linear-gradient(90deg, #7c5dfa, #2dd4bf);
+  color: #0b0e24;
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 0.8rem 1.8rem;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.ctaPrimary:hover {
+  color: #0b0e24;
+  text-decoration: none;
+  filter: brightness(1.08);
+}
+
+.ctaSecondary {
+  display: inline-block;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  padding: 0.8rem 1.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  text-decoration: none;
+}
+
+.ctaSecondary:hover {
+  color: #fff;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ctaSecondaryDark {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 1.05rem;
+  padding: 0.8rem 1.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.ctaSecondaryDark:hover {
+  text-decoration: none;
+  background: rgba(108, 76, 241, 0.08);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 1.75rem;
+  margin-top: 2.25rem;
+}
+
+@media screen and (max-width: 640px) {
+  .metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.metricValue {
+  font-size: 1.9rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.metricLabel {
+  font-size: 0.85rem;
+  color: #aab1d9;
+  max-width: 10rem;
+}
+
+/* Terminal window */
+.terminal {
+  background: #0a0e1f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  font-size: 0.86rem;
+}
+
+.termBar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.termTitle {
+  margin-left: 0.5rem;
+  color: #8b93bd;
+  font-size: 0.78rem;
+}
+
+.termBody {
+  padding: 1.1rem 1.2rem 1.3rem;
+  font-family: var(--ifm-font-family-monospace);
+  line-height: 1.9;
+  color: #dfe4ff;
+}
+
+.prompt {
+  color: #2dd4bf;
+  font-weight: 700;
+}
+
+.termOk {
+  color: #7ee2b8;
+}
+
+/* Sections */
+.kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--ifm-color-primary);
+  margin-bottom: 0.5rem;
+}
+
+.sectionTitle {
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 1.75rem;
+}
+
+.stackSection {
+  padding: 2.5rem 0 1rem;
+  text-align: center;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: center;
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+.pill {
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-100);
+  border: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+@media screen and (max-width: 768px) {
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+}
+
+.problem,
+.solution {
+  border-radius: 14px;
+  padding: 1.6rem 1.75rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.problem {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.solution {
+  background: linear-gradient(180deg, rgba(124, 93, 250, 0.12), rgba(45, 212, 191, 0.08));
+  border-color: rgba(124, 93, 250, 0.35);
+}
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.1rem;
+}
+
+@media screen and (max-width: 996px) {
+  .featureGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media screen and (max-width: 640px) {
+  .featureGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.featureCard {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  padding: 1.5rem;
+  background: var(--ifm-background-surface-color);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.featureCard:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 40px rgba(20, 20, 60, 0.12);
+}
+
+.featureCard h3 {
+  margin: 0.9rem 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.featureCard p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.featureIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #7c5dfa, #2dd4bf);
+}
+
+.featureIcon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.howSection {
+  background: var(--ifm-color-emphasis-100);
+  padding: 3.5rem 0;
+  margin-top: 3rem;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.1rem;
+}
+
+@media screen and (max-width: 996px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stepCard {
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+
+.stepNum {
+  font-size: 2.4rem;
+  font-weight: 800;
+  background: linear-gradient(90deg, #7c5dfa, #2dd4bf);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.stepCode {
+  font-size: 0.82rem;
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+@media screen and (max-width: 996px) {
+  .profileGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profileCard {
+  position: relative;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  padding: 1.5rem;
+  background: var(--ifm-background-surface-color);
+}
+
+.profileFeatured {
+  border: 2px solid #7c5dfa;
+}
+
+.profileFlag {
+  position: absolute;
+  top: -0.8rem;
+  left: 1.25rem;
+  background: #7c5dfa;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+}
+
+.profileTag {
+  font-weight: 700;
+  color: var(--ifm-color-primary);
+  margin-bottom: 0.5rem;
+}
+
+.quoteBand {
+  background: linear-gradient(90deg, #141a3d, #241d5c);
+  color: #eef0ff;
+  padding: 3rem 0;
+  text-align: center;
+}
+
+.quoteBand blockquote {
+  font-size: 1.4rem;
+  font-style: italic;
+  border: none;
+  margin: 0;
+}
+
+.quoteBand cite {
+  display: block;
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+  font-style: normal;
+  color: #aab1d9;
+}
+
+.ctaBand {
+  text-align: center;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 18px;
+  padding: 3rem 2rem;
+  background:
+    radial-gradient(30rem 12rem at 50% -20%, rgba(124, 93, 250, 0.18), transparent 70%),
+    var(--ifm-background-surface-color);
+}
+
+.ctaBand .ctaRow {
+  justify-content: center;
+}

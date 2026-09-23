@@ -18,9 +18,11 @@ spec:
           properties:
             spec:
               type: object
+              description: Desired state of the background workload.
               properties:
                 type:
                   type: string
+                  description: Workload kind. worker creates a Deployment, job a one-shot Job, cronjob a CronJob.
                   default: worker
                   enum:
                     - worker
@@ -28,16 +30,21 @@ spec:
                     - cronjob
                 image:
                   type: string
+                  description: Container image repository for the workload (without tag).
                 tag:
                   type: string
+                  description: Image tag to deploy.
                 replicas:
                   type: integer
+                  description: Replicas for worker Deployments. Ignored for job and cronjob workloads.
                   default: 1
                   minimum: 0
                 schedule:
                   type: string
+                  description: Cron schedule for cronjob workloads (required when type is cronjob).
                 restartPolicy:
                   type: string
+                  description: Pod restart policy for job and cronjob workloads.
                   default: OnFailure
                   enum:
                     - Always
@@ -45,10 +52,12 @@ spec:
                     - Never
                 backoffLimit:
                   type: integer
+                  description: Retries before a Job is marked as failed.
                   default: 6
                   minimum: 0
                 concurrencyPolicy:
                   type: string
+                  description: How overlapping cronjob runs are handled.
                   default: Forbid
                   enum:
                     - Allow
@@ -56,49 +65,60 @@ spec:
                     - Replace
                 imagePullPolicy:
                   type: string
+                  description: Image pull policy for the workload container.
                   enum:
                     - Always
                     - IfNotPresent
                     - Never
                 command:
                   type: array
+                  description: Container entrypoint command, overriding the image default.
                   items:
                     type: string
                 args:
                   type: array
+                  description: Arguments to the container entrypoint.
                   items:
                     type: string
                 env:
                   type: array
+                  description: Environment variables for the container (Kubernetes EnvVar style).
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 envFrom:
                   type: array
+                  description: Environment variables sourced from ConfigMaps or Secrets (Kubernetes EnvFromSource style).
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 volumeMounts:
                   type: array
+                  description: Volume mounts for the workload container.
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 volumes:
                   type: array
+                  description: Volumes for the pod, including Secret and emptyDir volumes.
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 resources:
                   type: object
+                  description: CPU and memory requests and limits for the container.
                   x-kubernetes-preserve-unknown-fields: true
                 podSecurityContext:
                   type: object
+                  description: Security settings for the pod.
                   x-kubernetes-preserve-unknown-fields: true
                 securityContext:
                   type: object
+                  description: Security settings for the workload container.
                   x-kubernetes-preserve-unknown-fields: true
                 serviceAccountName:
                   type: string
+                  description: ServiceAccount the workload pods run as.
               required:
                 - image
                 - tag
