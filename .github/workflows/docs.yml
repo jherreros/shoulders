@@ -44,6 +44,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate embedded manifests
+        working-directory: shoulders-cli
+        run: go generate ./...
+
       - name: Generate CLI + API reference
         run: npm run gen
 
