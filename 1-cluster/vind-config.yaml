@@ -5,7 +5,7 @@ controlPlane:
   distro:
     k8s:
       # renovate: datasource=github-tags depName=kubernetes/kubernetes versioning=semver
-      version: v1.37.0
+      version: v1.37.1
 privateNodes:
   joinNode:
     nodeRegistration:
