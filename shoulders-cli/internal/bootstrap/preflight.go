@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 
 	"github.com/docker/docker/api/types/container"
 )
@@ -113,16 +112,6 @@ func CheckDiskHeadroom(minBytes uint64) error {
 	}
 	return fmt.Errorf("only %.1f GiB free disk (need %.0f GiB): free space with 'docker builder prune' and 'docker image prune', enlarge the Docker Desktop disk image, then retry",
 		float64(free)/(1<<30), float64(minBytes)/(1<<30))
-}
-
-// freeBytes returns the unprivileged free bytes on the filesystem containing
-// path.
-func freeBytes(path string) (uint64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return 0, err
-	}
-	return uint64(stat.Bavail) * uint64(stat.Bsize), nil
 }
 
 // DockerResourceWarning describes under-provisioned Docker Desktop resources
