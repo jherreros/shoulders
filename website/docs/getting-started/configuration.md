@@ -2,6 +2,10 @@
 
 The CLI reads `~/.shoulders/config.yaml` by default. Use `--config <path>` to point at a
 different file, and repeatable `--set key=value` flags to override file values.
+`--set` overrides are **ephemeral**: they apply to that invocation only and are
+not saved to the config file (`up` prints a reminder). Edit the file for
+durable changes — e.g. `platform.profile: medium`, without which
+`infra add-stream` refuses.
 
 Generate a starter file:
 

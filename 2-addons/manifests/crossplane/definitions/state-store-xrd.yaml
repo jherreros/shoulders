@@ -57,6 +57,10 @@ spec:
                       description: Bootstrap SQL statements run against the application database.
                       items:
                         type: string
+                    resources:
+                      type: object
+                      description: CPU and memory requests and limits for the PostgreSQL instances. Omit to leave instances BestEffort (dev-tier default).
+                      x-kubernetes-preserve-unknown-fields: true
                 redis:
                   type: object
                   description: Redis cache (Deployment plus Service).

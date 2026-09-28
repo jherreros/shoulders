@@ -44,7 +44,18 @@ func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig 
 		return fmt.Errorf("check if cluster already exists: %w", err)
 	}
 	if exists {
-		return nil
+		status, sErr := containerStatus(ctx, controlPlanePrefix+name)
+		if sErr != nil {
+			return fmt.Errorf("inspect existing cluster container: %w", sErr)
+		}
+		if !isStaleCreatedContainer(status) {
+			return nil
+		}
+		// A half-created container from a failed run blocks retries: remove
+		// it so creation below starts clean.
+		if rErr := removeContainer(ctx, controlPlanePrefix+name); rErr != nil {
+			return fmt.Errorf("remove stale cluster container: %w", rErr)
+		}
 	}
 
 	// The vCluster OCI library reads Docker's credential store when pulling

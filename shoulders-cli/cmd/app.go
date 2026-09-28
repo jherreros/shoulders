@@ -28,21 +28,31 @@ var (
 	appReplicas          int32
 	appDryRun            bool
 	appInternal          bool
+	appCommand           []string
+	appArgs              []string
 	appEnv               []string
 	appEnvFromConfigMaps []string
 	appEnvFromSecrets    []string
+	appEnvFieldRef       []string
 	appSecretMounts      []string
 	appEmptyDirMounts    []string
+	appConfigMapMounts   []string
+	appSecretItems       []string
 	appReadinessPath     string
 	appLivenessPath      string
 	appStartupPath       string
+	appProbeInitialDelay int32
+	appProbePeriod       int32
 	appCPURequest        string
 	appMemoryRequest     string
 	appCPULimit          string
 	appMemoryLimit       string
+	appEphemeralRequest  string
+	appEphemeralLimit    string
 	appReadOnlyRootFS    bool
 	appRunAsNonRoot      bool
 	appRunAsUser         int64
+	appFsGroup           int64
 	appApplyFilename     string
 	appImageCluster      string
 )
@@ -166,6 +176,9 @@ var appBuildImageCmd = &cobra.Command{
 			contextPath = args[1]
 		}
 		clusterName := configuredClusterName(cmd, "cluster", appImageCluster)
+		if err := bootstrap.CheckDiskHeadroom(bootstrap.ImageBuildDiskMinimum); err != nil {
+			return err
+		}
 		if err := bootstrap.BuildLocalImage(cmd.Context(), image, contextPath); err != nil {
 			return err
 		}
@@ -187,6 +200,9 @@ var appLoadImageCmd = &cobra.Command{
 		}
 		image := args[0]
 		clusterName := configuredClusterName(cmd, "cluster", appImageCluster)
+		if err := bootstrap.CheckDiskHeadroom(bootstrap.ImageBuildDiskMinimum); err != nil {
+			return err
+		}
 		if err := bootstrap.LoadImageIntoVindCluster(cmd.Context(), clusterName, image); err != nil {
 			return err
 		}
@@ -308,8 +324,16 @@ func buildWebApplication(name, namespace string) (v1alpha1.WebApplication, error
 	if err != nil {
 		return v1alpha1.WebApplication{}, err
 	}
+	fieldRefEnv, err := parseFieldRefEnv(appEnvFieldRef)
+	if err != nil {
+		return v1alpha1.WebApplication{}, err
+	}
 	envFrom := buildEnvFrom(appEnvFromConfigMaps, appEnvFromSecrets)
-	volumes, volumeMounts, err := buildVolumesAndMounts(appSecretMounts, appEmptyDirMounts)
+	secretItems, err := parseSecretItems(appSecretItems)
+	if err != nil {
+		return v1alpha1.WebApplication{}, err
+	}
+	volumes, volumeMounts, err := buildVolumesAndMounts(appSecretMounts, appEmptyDirMounts, appConfigMapMounts, secretItems)
 	if err != nil {
 		return v1alpha1.WebApplication{}, err
 	}
@@ -320,21 +344,24 @@ func buildWebApplication(name, namespace string) (v1alpha1.WebApplication, error
 	}
 
 	spec := v1alpha1.WebApplicationSpec{
-		Image:           image,
-		Tag:             tag,
-		Replicas:        appReplicas,
-		Host:            host,
-		Port:            appPort,
-		Service:         &v1alpha1.ServiceSpec{Port: appServicePort},
-		Env:             env,
-		EnvFrom:         envFrom,
-		Volumes:         volumes,
-		VolumeMounts:    volumeMounts,
-		ReadinessProbe:  buildHTTPProbe(appReadinessPath, appPort),
-		LivenessProbe:   buildHTTPProbe(appLivenessPath, appPort),
-		StartupProbe:    buildHTTPProbe(appStartupPath, appPort),
-		Resources:       resources,
-		SecurityContext: securityContext,
+		Image:              image,
+		Tag:                tag,
+		Replicas:           appReplicas,
+		Host:               host,
+		Port:               appPort,
+		Command:            appCommand,
+		Args:               appArgs,
+		Service:            &v1alpha1.ServiceSpec{Port: appServicePort},
+		Env:                append(env, fieldRefEnv...),
+		EnvFrom:            envFrom,
+		Volumes:            volumes,
+		VolumeMounts:       volumeMounts,
+		ReadinessProbe:     buildHTTPProbe(appReadinessPath, appPort),
+		LivenessProbe:      buildHTTPProbe(appLivenessPath, appPort),
+		StartupProbe:       buildHTTPProbe(appStartupPath, appPort),
+		Resources:          resources,
+		SecurityContext:    securityContext,
+		PodSecurityContext: buildPodSecurityContext(),
 	}
 	if appInternal {
 		spec.Route = &v1alpha1.RouteSpec{Enabled: boolPtr(false)}
@@ -375,15 +402,23 @@ func applyAppFlagOverrides(cmd *cobra.Command, name string, spec map[string]inte
 		changed = true
 	}
 	if cmd.Flags().Changed("replicas") {
-		spec["replicas"] = appReplicas
+		spec["replicas"] = int64(appReplicas)
 		changed = true
 	}
 	if cmd.Flags().Changed("port") {
-		spec["port"] = appPort
+		spec["port"] = int64(appPort)
 		changed = true
 	}
 	if cmd.Flags().Changed("service-port") {
-		spec["service"] = map[string]interface{}{"port": appServicePort}
+		spec["service"] = map[string]interface{}{"port": int64(appServicePort)}
+		changed = true
+	}
+	if cmd.Flags().Changed("command") {
+		spec["command"] = toUnstructuredStringList(appCommand)
+		changed = true
+	}
+	if cmd.Flags().Changed("arg") {
+		spec["args"] = toUnstructuredStringList(appArgs)
 		changed = true
 	}
 	if cmd.Flags().Changed("host") {
@@ -396,41 +431,62 @@ func applyAppFlagOverrides(cmd *cobra.Command, name string, spec map[string]inte
 		spec["route"] = map[string]interface{}{"enabled": false}
 		changed = true
 	}
-	if cmd.Flags().Changed("env") {
+	if cmd.Flags().Changed("env") || cmd.Flags().Changed("env-fieldref") {
 		env, err := parseEnvVars(appEnv)
 		if err != nil {
 			return false, err
 		}
-		spec["env"] = env
-		changed = true
-	}
-	if cmd.Flags().Changed("env-from-configmap") || cmd.Flags().Changed("env-from-secret") {
-		spec["envFrom"] = buildEnvFrom(appEnvFromConfigMaps, appEnvFromSecrets)
-		changed = true
-	}
-	if cmd.Flags().Changed("secret-mount") || cmd.Flags().Changed("empty-dir") {
-		volumes, volumeMounts, err := buildVolumesAndMounts(appSecretMounts, appEmptyDirMounts)
+		fieldRefEnv, err := parseFieldRefEnv(appEnvFieldRef)
 		if err != nil {
 			return false, err
 		}
-		spec["volumes"] = volumes
-		spec["volumeMounts"] = volumeMounts
+		spec["env"] = toUnstructuredList(append(env, fieldRefEnv...))
+		changed = true
+	}
+	if cmd.Flags().Changed("env-from-configmap") || cmd.Flags().Changed("env-from-secret") {
+		spec["envFrom"] = toUnstructuredList(buildEnvFrom(appEnvFromConfigMaps, appEnvFromSecrets))
+		changed = true
+	}
+	if cmd.Flags().Changed("secret-mount") || cmd.Flags().Changed("empty-dir") || cmd.Flags().Changed("configmap-mount") || cmd.Flags().Changed("secret-items") {
+		secretItems, err := parseSecretItems(appSecretItems)
+		if err != nil {
+			return false, err
+		}
+		volumes, volumeMounts, err := buildVolumesAndMounts(appSecretMounts, appEmptyDirMounts, appConfigMapMounts, secretItems)
+		if err != nil {
+			return false, err
+		}
+		spec["volumes"] = toUnstructuredList(volumes)
+		spec["volumeMounts"] = toUnstructuredList(volumeMounts)
 		changed = true
 	}
 	if cmd.Flags().Changed("readiness-path") {
-		spec["readinessProbe"] = buildHTTPProbe(appReadinessPath, appPort)
+		spec["readinessProbe"] = buildHTTPProbePreservingTiming(cmd, spec, "readinessProbe", appReadinessPath, appPort)
 		changed = true
 	}
 	if cmd.Flags().Changed("liveness-path") {
-		spec["livenessProbe"] = buildHTTPProbe(appLivenessPath, appPort)
+		spec["livenessProbe"] = buildHTTPProbePreservingTiming(cmd, spec, "livenessProbe", appLivenessPath, appPort)
 		changed = true
 	}
 	if cmd.Flags().Changed("startup-path") {
-		spec["startupProbe"] = buildHTTPProbe(appStartupPath, appPort)
+		spec["startupProbe"] = buildHTTPProbePreservingTiming(cmd, spec, "startupProbe", appStartupPath, appPort)
 		changed = true
 	}
-	if anyFlagChanged(cmd, "cpu-request", "memory-request", "cpu-limit", "memory-limit") {
+	if anyFlagChanged(cmd, "probe-initial-delay", "probe-period") {
+		if applyProbeTiming(spec, cmd.Flags().Changed("probe-initial-delay"), cmd.Flags().Changed("probe-period")) {
+			changed = true
+		}
+	}
+	if anyFlagChanged(cmd, "cpu-request", "memory-request", "cpu-limit", "memory-limit", "ephemeral-storage-request", "ephemeral-storage-limit") {
 		spec["resources"] = buildResources()
+		changed = true
+	}
+	if cmd.Flags().Changed("fs-group") {
+		if podSecurityContext := buildPodSecurityContext(); podSecurityContext != nil {
+			spec["podSecurityContext"] = podSecurityContext
+		} else {
+			delete(spec, "podSecurityContext")
+		}
 		changed = true
 	}
 	if anyFlagChanged(cmd, "read-only-root-filesystem", "run-as-non-root", "run-as-user") {
@@ -483,6 +539,59 @@ func parseEnvVars(entries []string) ([]map[string]interface{}, error) {
 	return env, nil
 }
 
+// parseFieldRefEnv parses downward-API environment entries in the form
+// NAME=field.path (e.g. NAMESPACE=metadata.namespace, POD_IP=status.podIP)
+// into Kubernetes EnvVar-style maps with valueFrom.fieldRef.
+func parseFieldRefEnv(entries []string) ([]map[string]interface{}, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	env := make([]map[string]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		name, fieldPath, ok := strings.Cut(entry, "=")
+		name, fieldPath = strings.TrimSpace(name), strings.TrimSpace(fieldPath)
+		if !ok || name == "" || fieldPath == "" {
+			return nil, fmt.Errorf("invalid fieldref env entry %q, expected NAME=field.path", entry)
+		}
+		env = append(env, map[string]interface{}{
+			"name": name,
+			"valueFrom": map[string]interface{}{
+				"fieldRef": map[string]interface{}{"fieldPath": fieldPath},
+			},
+		})
+	}
+	return env, nil
+}
+
+// toUnstructuredStringList converts a string slice into the []interface{}
+// form required by unstructured objects ([]string panics on deep-copy, same
+// as []map[string]interface{}).
+func toUnstructuredStringList(items []string) []interface{} {
+	if items == nil {
+		return nil
+	}
+	out := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		out = append(out, item)
+	}
+	return out
+}
+
+// toUnstructuredList converts a typed map slice into the []interface{}
+// form required by unstructured objects. Assigning []map[string]interface{}
+// directly into an unstructured map panics on deep-copy
+// ("cannot deep copy []map[string]interface {}").
+func toUnstructuredList(items []map[string]interface{}) []interface{} {
+	if items == nil {
+		return nil
+	}
+	out := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		out = append(out, item)
+	}
+	return out
+}
+
 func buildEnvFrom(configMaps, secrets []string) []map[string]interface{} {
 	envFrom := make([]map[string]interface{}, 0, len(configMaps)+len(secrets))
 	for _, name := range configMaps {
@@ -505,7 +614,7 @@ func buildEnvFrom(configMaps, secrets []string) []map[string]interface{} {
 	return envFrom
 }
 
-func buildVolumesAndMounts(secretMounts, emptyDirMounts []string) ([]map[string]interface{}, []map[string]interface{}, error) {
+func buildVolumesAndMounts(secretMounts, emptyDirMounts, configMapMounts []string, secretItems map[string][]interface{}) ([]map[string]interface{}, []map[string]interface{}, error) {
 	volumes := []map[string]interface{}{}
 	volumeMounts := []map[string]interface{}{}
 	for _, entry := range secretMounts {
@@ -519,9 +628,35 @@ func buildVolumesAndMounts(secretMounts, emptyDirMounts []string) ([]map[string]
 		if len(parts) > 2 && strings.TrimSpace(parts[2]) != "" {
 			volumeName = strings.TrimSpace(parts[2])
 		}
+		secretSource := map[string]interface{}{"secretName": secretName}
+		if items, ok := secretItems[secretName]; ok {
+			secretSource["items"] = items
+			delete(secretItems, secretName)
+		}
 		volumes = append(volumes, map[string]interface{}{
 			"name":   volumeName,
-			"secret": map[string]interface{}{"secretName": secretName},
+			"secret": secretSource,
+		})
+		volumeMounts = append(volumeMounts, map[string]interface{}{
+			"name":      volumeName,
+			"mountPath": mountPath,
+			"readOnly":  true,
+		})
+	}
+	for _, entry := range configMapMounts {
+		parts := strings.Split(entry, ":")
+		if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, nil, fmt.Errorf("invalid configmap mount %q, expected configMapName:mountPath[:volumeName]", entry)
+		}
+		configMapName := strings.TrimSpace(parts[0])
+		mountPath := strings.TrimSpace(parts[1])
+		volumeName := configMapName
+		if len(parts) > 2 && strings.TrimSpace(parts[2]) != "" {
+			volumeName = strings.TrimSpace(parts[2])
+		}
+		volumes = append(volumes, map[string]interface{}{
+			"name":      volumeName,
+			"configMap": map[string]interface{}{"name": configMapName},
 		})
 		volumeMounts = append(volumeMounts, map[string]interface{}{
 			"name":      volumeName,
@@ -545,10 +680,42 @@ func buildVolumesAndMounts(secretMounts, emptyDirMounts []string) ([]map[string]
 			"mountPath": mountPath,
 		})
 	}
+	if len(secretItems) > 0 {
+		names := make([]string, 0, len(secretItems))
+		for name := range secretItems {
+			names = append(names, name)
+		}
+		return nil, nil, fmt.Errorf("secret items for unmounted secret(s) %q: add a matching --secret-mount first", strings.Join(names, ","))
+	}
 	if len(volumes) == 0 {
 		return nil, nil, nil
 	}
 	return volumes, volumeMounts, nil
+}
+
+// parseSecretItems parses key-to-path mappings for mounted secrets, in the
+// form secretName:key=path[,key=path...] (repeatable). The returned items are
+// unstructured-safe ([]interface{} of maps) for direct assignment into specs.
+func parseSecretItems(entries []string) (map[string][]interface{}, error) {
+	items := map[string][]interface{}{}
+	for _, entry := range entries {
+		name, rest, ok := strings.Cut(entry, ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" || strings.TrimSpace(rest) == "" {
+			return nil, fmt.Errorf("invalid secret items %q, expected secretName:key=path[,key=path...]", entry)
+		}
+		mappings := []interface{}{}
+		for pair := range strings.SplitSeq(rest, ",") {
+			key, path, ok := strings.Cut(pair, "=")
+			key, path = strings.TrimSpace(key), strings.TrimSpace(path)
+			if !ok || key == "" || path == "" {
+				return nil, fmt.Errorf("invalid secret items %q, expected key=path pairs", entry)
+			}
+			mappings = append(mappings, map[string]interface{}{"key": key, "path": path})
+		}
+		items[name] = append(items[name], mappings...)
+	}
+	return items, nil
 }
 
 func buildHTTPProbe(path string, port int32) map[string]interface{} {
@@ -558,11 +725,58 @@ func buildHTTPProbe(path string, port int32) map[string]interface{} {
 	return map[string]interface{}{
 		"httpGet": map[string]interface{}{
 			"path": strings.TrimSpace(path),
-			"port": port,
+			"port": int64(port),
 		},
-		"initialDelaySeconds": int32(5),
-		"periodSeconds":       int32(10),
+		"initialDelaySeconds": int64(appProbeInitialDelay),
+		"periodSeconds":       int64(appProbePeriod),
 	}
+}
+
+// buildHTTPProbePreservingTiming rebuilds a probe from a new path while
+// keeping previously configured timing for whichever timing flags were not
+// passed. Without this, `app update --readiness-path` would silently reset a
+// customized period back to the default.
+func buildHTTPProbePreservingTiming(cmd *cobra.Command, spec map[string]interface{}, key, path string, port int32) map[string]interface{} {
+	probe := buildHTTPProbe(path, port)
+	if probe == nil {
+		return nil
+	}
+	if prev, ok := spec[key].(map[string]interface{}); ok && prev != nil {
+		if !cmd.Flags().Changed("probe-initial-delay") {
+			if delay, ok := prev["initialDelaySeconds"]; ok {
+				probe["initialDelaySeconds"] = delay
+			}
+		}
+		if !cmd.Flags().Changed("probe-period") {
+			if period, ok := prev["periodSeconds"]; ok {
+				probe["periodSeconds"] = period
+			}
+		}
+	}
+	return probe
+}
+
+// applyProbeTiming sets the configured probe timing on every probe present in
+// the spec, whether just built from flags or fetched from the server. Only
+// timing fields whose flags changed are touched, so retuning the delay does
+// not reset a customized period (Java services typically need 60–120s
+// startup delays with short periods).
+func applyProbeTiming(spec map[string]interface{}, setDelay, setPeriod bool) bool {
+	changed := false
+	for _, key := range []string{"readinessProbe", "livenessProbe", "startupProbe"} {
+		probe, ok := spec[key].(map[string]interface{})
+		if !ok || probe == nil {
+			continue
+		}
+		if setDelay {
+			probe["initialDelaySeconds"] = int64(appProbeInitialDelay)
+		}
+		if setPeriod {
+			probe["periodSeconds"] = int64(appProbePeriod)
+		}
+		changed = true
+	}
+	return changed
 }
 
 func buildResources() map[string]interface{} {
@@ -574,11 +788,17 @@ func buildResources() map[string]interface{} {
 	if appMemoryRequest != "" {
 		requests["memory"] = appMemoryRequest
 	}
+	if appEphemeralRequest != "" {
+		requests["ephemeral-storage"] = appEphemeralRequest
+	}
 	if appCPULimit != "" {
 		limits["cpu"] = appCPULimit
 	}
 	if appMemoryLimit != "" {
 		limits["memory"] = appMemoryLimit
+	}
+	if appEphemeralLimit != "" {
+		limits["ephemeral-storage"] = appEphemeralLimit
 	}
 	resources := map[string]interface{}{}
 	if len(requests) > 0 {
@@ -591,6 +811,15 @@ func buildResources() map[string]interface{} {
 		return nil
 	}
 	return resources
+}
+
+// buildPodSecurityContext returns the pod-level security context, currently
+// carrying only fsGroup. Nil when unset so the field stays omitted.
+func buildPodSecurityContext() map[string]interface{} {
+	if appFsGroup < 0 {
+		return nil
+	}
+	return map[string]interface{}{"fsGroup": appFsGroup}
 }
 
 func buildSecurityContext() (map[string]interface{}, error) {
@@ -659,23 +888,33 @@ func init() {
 func registerAppSpecFlags(cmd *cobra.Command, requireImage bool) {
 	cmd.Flags().StringVar(&appImage, "image", "", "Container image (repo or repo:tag)")
 	cmd.Flags().StringVar(&appTag, "tag", "", "Override image tag")
+	cmd.Flags().StringArrayVar(&appCommand, "command", nil, "Container entrypoint command, repeatable")
+	cmd.Flags().StringArrayVar(&appArgs, "arg", nil, "Container argument, repeatable")
 	cmd.Flags().StringVar(&appHost, "host", "", "Hostname for HTTP routing")
 	cmd.Flags().Int32Var(&appPort, "port", 80, "Container port")
 	cmd.Flags().Int32Var(&appServicePort, "service-port", 80, "Kubernetes Service port")
 	cmd.Flags().Int32Var(&appReplicas, "replicas", 1, "Number of replicas")
 	cmd.Flags().BoolVar(&appInternal, "internal", false, "Create only an internal Service without an HTTPRoute")
 	cmd.Flags().StringArrayVar(&appEnv, "env", nil, "Environment variable (KEY=VALUE), repeatable")
+	cmd.Flags().StringArrayVar(&appEnvFieldRef, "env-fieldref", nil, "Downward API environment variable (NAME=field.path, e.g. NAMESPACE=metadata.namespace), repeatable")
 	cmd.Flags().StringArrayVar(&appEnvFromConfigMaps, "env-from-configmap", nil, "ConfigMap to expose through envFrom, repeatable")
 	cmd.Flags().StringArrayVar(&appEnvFromSecrets, "env-from-secret", nil, "Secret to expose through envFrom, repeatable")
 	cmd.Flags().StringArrayVar(&appSecretMounts, "secret-mount", nil, "Mount a Secret as a volume (secretName:mountPath[:volumeName]), repeatable")
+	cmd.Flags().StringArrayVar(&appConfigMapMounts, "configmap-mount", nil, "Mount a ConfigMap as a volume (configMapName:mountPath[:volumeName]), repeatable")
+	cmd.Flags().StringArrayVar(&appSecretItems, "secret-items", nil, "Map Secret keys to file paths (secretName:key=path[,key=path...]), repeatable; requires a matching --secret-mount")
 	cmd.Flags().StringArrayVar(&appEmptyDirMounts, "empty-dir", nil, "Mount a writable emptyDir volume (name:mountPath), repeatable")
 	cmd.Flags().StringVar(&appReadinessPath, "readiness-path", "", "HTTP readiness probe path")
 	cmd.Flags().StringVar(&appLivenessPath, "liveness-path", "", "HTTP liveness probe path")
 	cmd.Flags().StringVar(&appStartupPath, "startup-path", "", "HTTP startup probe path")
+	cmd.Flags().Int32Var(&appProbeInitialDelay, "probe-initial-delay", 5, "Initial delay in seconds for HTTP probes")
+	cmd.Flags().Int32Var(&appProbePeriod, "probe-period", 10, "Period in seconds for HTTP probes")
 	cmd.Flags().StringVar(&appCPURequest, "cpu-request", "", "CPU request, for example 100m")
 	cmd.Flags().StringVar(&appMemoryRequest, "memory-request", "", "Memory request, for example 128Mi")
 	cmd.Flags().StringVar(&appCPULimit, "cpu-limit", "", "CPU limit, for example 500m")
 	cmd.Flags().StringVar(&appMemoryLimit, "memory-limit", "", "Memory limit, for example 256Mi")
+	cmd.Flags().StringVar(&appEphemeralRequest, "ephemeral-storage-request", "", "Ephemeral storage request, for example 1Gi")
+	cmd.Flags().StringVar(&appEphemeralLimit, "ephemeral-storage-limit", "", "Ephemeral storage limit, for example 2Gi")
+	cmd.Flags().Int64Var(&appFsGroup, "fs-group", -1, "Set pod securityContext.fsGroup")
 	cmd.Flags().BoolVar(&appReadOnlyRootFS, "read-only-root-filesystem", false, "Set container securityContext.readOnlyRootFilesystem")
 	cmd.Flags().BoolVar(&appRunAsNonRoot, "run-as-non-root", false, "Set container securityContext.runAsNonRoot")
 	cmd.Flags().Int64Var(&appRunAsUser, "run-as-user", -1, "Set container securityContext.runAsUser")

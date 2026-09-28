@@ -27,7 +27,16 @@ var (
 var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Create the local cluster and install platform addons",
+	Long: `Create the local cluster and install platform addons.
+
+Pre-flights host ports 80/443 and Docker disk headroom before creating
+anything. Check the Profiles guide for per-profile Docker Desktop minimums
+(small: 8 CPUs / 8-12 GiB / ~25 GiB free disk; medium and large need
+devserver-class resources).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if notice := setOverridesNotice(); notice != "" {
+			fmt.Println(notice)
+		}
 		if upLocal && upBundle != "" {
 			return fmt.Errorf("cannot combine --local and --bundle")
 		}
@@ -72,7 +81,35 @@ var upCmd = &cobra.Command{
 			}
 		} else {
 			tracker.Start(verboseDetail("creating vind cluster %q using %s profile", clusterName, profileSpec.Name))
+			// vind maps container ports 80/443 to the host: fail fast with a
+			// named remedy instead of a raw docker bind error mid-install.
+			if err := bootstrap.CheckHostPortsAvailable(cmd.Context(), clusterName, []int{80, 443}); err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+			// A full Docker disk causes the disk-pressure death spiral:
+			// refuse before creating anything.
+			if err := bootstrap.CheckDiskHeadroom(bootstrap.ProfileDiskMinimum(profileSpec.Name)); err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
+			if warn, err := bootstrap.DockerResourceWarning(cmd.Context()); err == nil && warn != "" {
+				tracker.UpdateDetail(warn)
+			}
+			// Snapshot the kubeconfig before vind rewrites it: a failed
+			// create can otherwise leave it nulled.
+			kubeconfigRestore, err := bootstrap.BackupKubeconfig(kubeconfig)
+			if err != nil {
+				tracker.Fail(err.Error())
+				return err
+			}
 			if err := bootstrap.EnsureVindCluster(cmd.Context(), clusterName, manifests.VindConfigForProfile(profileSpec.Name), authConfig, publicConfig.DexHost); err != nil {
+				if kubeconfigRestore != nil {
+					if rErr := kubeconfigRestore(); rErr != nil {
+						tracker.Fail(rErr.Error())
+						return fmt.Errorf("failed to create vind cluster: %w (kubeconfig restore also failed: %v)", err, rErr)
+					}
+				}
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to create vind cluster: %w", err)
 			}
@@ -308,6 +345,15 @@ var upCmd = &cobra.Command{
 type namedPlatformResource struct {
 	ns   string
 	name string
+}
+
+// setOverridesNotice reminds users that --set overrides are ephemeral.
+// Returns "" when no overrides were passed.
+func setOverridesNotice() string {
+	if len(configOverrides) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Note: --set overrides are ephemeral and are not saved to %q; edit the file to persist them.", loadedConfigPath)
 }
 
 func platformDeploymentsForProfile(profile config.ProfileSpec) []namedPlatformResource {
