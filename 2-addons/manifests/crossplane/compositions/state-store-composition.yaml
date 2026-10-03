@@ -56,6 +56,10 @@ spec:
                   {{ end }}
               storage:
                 size: {{ $postgresql.storage | default "1Gi" | quote }}
+              {{ with $postgresql.resources }}
+              resources:
+              {{ toYaml . | nindent 16 }}
+              {{ end }}
             ---
             apiVersion: v1
             kind: Secret
