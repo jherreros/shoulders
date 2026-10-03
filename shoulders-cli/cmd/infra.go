@@ -23,6 +23,10 @@ var (
 	dbDatabases      string
 	dbSecretName     string
 	dbInitSQL        []string
+	dbCPURequest     string
+	dbMemoryRequest  string
+	dbCPULimit       string
+	dbMemoryLimit    string
 	bucketName       string
 	bucketSecretName string
 	bucketRead       bool
@@ -32,6 +36,7 @@ var (
 	streamPartitions int32
 	streamReplicas   int32
 	streamConfig     []string
+	infraDryRun      bool
 )
 
 var infraCmd = &cobra.Command{
@@ -75,6 +80,7 @@ var infraAddDbCmd = &cobra.Command{
 					SecretName: dbSecretName,
 					Databases:  databases,
 					InitSQL:    append([]string(nil), dbInitSQL...),
+					Resources:  buildDBResources(),
 				},
 				Redis: &v1alpha1.RedisSpec{
 					Enabled:  boolPtr(redisEnabled),
@@ -86,6 +92,10 @@ var infraAddDbCmd = &cobra.Command{
 		manifest, err := yaml.Marshal(app)
 		if err != nil {
 			return err
+		}
+		if infraDryRun {
+			fmt.Println(string(manifest))
+			return nil
 		}
 		obj := &unstructured.Unstructured{}
 		if err := yaml.Unmarshal(manifest, obj); err != nil {
@@ -110,7 +120,7 @@ var infraAddStreamCmd = &cobra.Command{
 	Short: "Create an EventStream",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if !currentConfig.ProfileSpec().EventStreams {
+		if !infraDryRun && !currentConfig.ProfileSpec().EventStreams {
 			return fmt.Errorf("event streams require platform.profile: medium or large")
 		}
 
@@ -154,6 +164,10 @@ var infraAddStreamCmd = &cobra.Command{
 		manifest, err := yaml.Marshal(stream)
 		if err != nil {
 			return err
+		}
+		if infraDryRun {
+			fmt.Println(string(manifest))
+			return nil
 		}
 		obj := &unstructured.Unstructured{}
 		if err := yaml.Unmarshal(manifest, obj); err != nil {
@@ -217,6 +231,10 @@ var infraAddBucketCmd = &cobra.Command{
 		manifest, err := yaml.Marshal(store)
 		if err != nil {
 			return err
+		}
+		if infraDryRun {
+			fmt.Println(string(manifest))
+			return nil
 		}
 		obj := &unstructured.Unstructured{}
 		if err := yaml.Unmarshal(manifest, obj); err != nil {
@@ -354,6 +372,47 @@ func int32Ptr(value int32) *int32 {
 	return &value
 }
 
+// buildDBResources returns CPU/memory requests and limits for PostgreSQL
+// instances. Explicit flags win; otherwise the prod tier implies modest
+// requests so prod databases are not BestEffort (and don't die first under
+// node pressure). Dev stays BestEffort by default: nil means "omit".
+func buildDBResources() map[string]interface{} {
+	requests := map[string]interface{}{}
+	limits := map[string]interface{}{}
+	cpuRequest, memoryRequest := dbCPURequest, dbMemoryRequest
+	if strings.EqualFold(dbTier, "prod") {
+		if cpuRequest == "" {
+			cpuRequest = "250m"
+		}
+		if memoryRequest == "" {
+			memoryRequest = "512Mi"
+		}
+	}
+	if cpuRequest != "" {
+		requests["cpu"] = cpuRequest
+	}
+	if memoryRequest != "" {
+		requests["memory"] = memoryRequest
+	}
+	if dbCPULimit != "" {
+		limits["cpu"] = dbCPULimit
+	}
+	if dbMemoryLimit != "" {
+		limits["memory"] = dbMemoryLimit
+	}
+	resources := map[string]interface{}{}
+	if len(requests) > 0 {
+		resources["requests"] = requests
+	}
+	if len(limits) > 0 {
+		resources["limits"] = limits
+	}
+	if len(resources) == 0 {
+		return nil
+	}
+	return resources
+}
+
 func parseConfig(entries []string) (map[string]interface{}, error) {
 	if len(entries) == 0 {
 		return nil, nil
@@ -415,6 +474,10 @@ func init() {
 	infraAddDbCmd.Flags().StringVar(&dbDatabases, "databases", "", "Additional PostgreSQL databases, comma or newline separated")
 	infraAddDbCmd.Flags().StringVar(&dbSecretName, "secret", "", "PostgreSQL credentials Secret name (defaults to <name>-app-secret)")
 	infraAddDbCmd.Flags().StringArrayVar(&dbInitSQL, "init-sql", nil, "SQL statement to run during PostgreSQL bootstrap, repeatable")
+	infraAddDbCmd.Flags().StringVar(&dbCPURequest, "cpu-request", "", "PostgreSQL CPU request, for example 250m (prod tier defaults to 250m)")
+	infraAddDbCmd.Flags().StringVar(&dbMemoryRequest, "memory-request", "", "PostgreSQL memory request, for example 512Mi (prod tier defaults to 512Mi)")
+	infraAddDbCmd.Flags().StringVar(&dbCPULimit, "cpu-limit", "", "PostgreSQL CPU limit, for example 1000m")
+	infraAddDbCmd.Flags().StringVar(&dbMemoryLimit, "memory-limit", "", "PostgreSQL memory limit, for example 1Gi")
 	infraAddBucketCmd.Flags().StringVar(&bucketName, "bucket", "", "Bucket name (defaults to resource name)")
 	infraAddBucketCmd.Flags().StringVar(&bucketSecretName, "secret", "", "Secret name for S3 credentials (defaults to <bucket>-s3)")
 	infraAddBucketCmd.Flags().BoolVar(&bucketRead, "read", true, "Grant read access to the generated key")
@@ -425,6 +488,9 @@ func init() {
 	infraAddStreamCmd.Flags().Int32Var(&streamPartitions, "partitions", 0, "Partitions per topic (default from XRD)")
 	infraAddStreamCmd.Flags().Int32Var(&streamReplicas, "replicas", 0, "Replicas per topic (default from XRD)")
 	infraAddStreamCmd.Flags().StringArrayVar(&streamConfig, "topic-config", nil, "Topic config entry (key=value), repeatable")
+	infraAddDbCmd.Flags().BoolVar(&infraDryRun, "dry-run", false, "Print YAML instead of applying")
+	infraAddBucketCmd.Flags().BoolVar(&infraDryRun, "dry-run", false, "Print YAML instead of applying")
+	infraAddStreamCmd.Flags().BoolVar(&infraDryRun, "dry-run", false, "Print YAML instead of applying")
 
 	registerNamespaceFlag(infraAddDbCmd)
 	registerNamespaceFlag(infraAddBucketCmd)
