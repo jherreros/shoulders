@@ -236,6 +236,13 @@ Profile summary:
 | `medium` | Default local platform | control plane + 2 workers | Yes | Trivy, Falco, Policy Reporter |
 | `large` | Full local platform with more headroom | control plane + 3 workers | Yes | Trivy, Falco, Policy Reporter |
 
+Minimum hardware (Docker Desktop allocation + free host disk): `small` 8 CPUs /
+8–12 GiB / ~25 GiB; `medium` 8+ CPUs / 16+ GiB / ~40 GiB (devserver or CI
+runners — never converged on an 11 CPU / ~12 GiB laptop VM); `large` 8+ CPUs /
+32 GiB / 60+ GiB (devservers only). Details and measured data points:
+[Profiles](website/docs/guides/profiles.md); contributor resource guidance:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## CLI Reference
 
 The `shoulders` CLI supports the following commands:

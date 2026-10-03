@@ -85,6 +85,36 @@ func containerExists(ctx context.Context, containerName string) (bool, error) {
 	return true, nil
 }
 
+// containerStatus returns the Docker status string ("created", "running",
+// "exited", ...) for a container, or "" when it does not exist.
+func containerStatus(ctx context.Context, containerName string) (string, error) {
+	cli, err := dockerClient()
+	if err != nil {
+		return "", fmt.Errorf("create docker client: %w", err)
+	}
+	defer cli.Close() //nolint:errcheck // best-effort cleanup
+
+	info, err := cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("inspect container %q: %w", containerName, err)
+	}
+	if info.State == nil {
+		return "", nil
+	}
+	return info.State.Status, nil
+}
+
+// isStaleCreatedContainer reports whether a cluster control-plane container
+// is residue from a failed run: stuck in "created", it never started, holds
+// port bindings, and blocks retries. Running containers and ones stopped via
+// `shoulders stop` ("exited") are left alone.
+func isStaleCreatedContainer(status string) bool {
+	return status == "created"
+}
+
 // removeContainer force-removes a Docker container by name, ignoring
 // not-found errors.
 func removeContainer(ctx context.Context, name string) error {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
@@ -30,6 +31,22 @@ func TestUpPhasesIncludesBundleImport(t *testing.T) {
 	}
 	if phases[1] != "Import airgap bundle" {
 		t.Fatalf("expected bundle import as second phase, got %v", phases)
+	}
+}
+
+func TestSetOverridesNotice(t *testing.T) {
+	oldOverrides, oldPath := configOverrides, loadedConfigPath
+	defer func() { configOverrides, loadedConfigPath = oldOverrides, oldPath }()
+
+	configOverrides, loadedConfigPath = nil, "/tmp/shoulders.yaml"
+	if got := setOverridesNotice(); got != "" {
+		t.Fatalf("expected no notice without overrides, got %q", got)
+	}
+
+	configOverrides = []string{"platform.profile=small"}
+	got := setOverridesNotice()
+	if got == "" || !strings.Contains(got, "/tmp/shoulders.yaml") || !strings.Contains(got, "ephemeral") {
+		t.Fatalf("expected ephemeral notice with config path, got %q", got)
 	}
 }
 

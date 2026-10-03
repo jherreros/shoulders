@@ -1,6 +1,18 @@
 package cmd
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/spf13/cobra"
+)
+
+func TestInfraAddCommandsExposeDryRun(t *testing.T) {
+	for _, cmd := range []*cobra.Command{infraAddDbCmd, infraAddBucketCmd, infraAddStreamCmd} {
+		if flag := cmd.Flags().Lookup("dry-run"); flag == nil {
+			t.Fatalf("expected %s to expose --dry-run", cmd.Name())
+		}
+	}
+}
 
 func TestInfraAddStreamDoesNotShadowGlobalConfigFlag(t *testing.T) {
 	if flag := infraAddStreamCmd.LocalFlags().Lookup("config"); flag != nil {
@@ -32,5 +44,32 @@ func TestParseList(t *testing.T) {
 	items := parseList("app, ledger\naccounts")
 	if len(items) != 3 || items[0] != "app" || items[2] != "accounts" {
 		t.Fatalf("unexpected list parse result: %#v", items)
+	}
+}
+
+func TestBuildDBResources(t *testing.T) {
+	oldTier, oldCPU, oldMem, oldCPULim, oldMemLim := dbTier, dbCPURequest, dbMemoryRequest, dbCPULimit, dbMemoryLimit
+	defer func() {
+		dbTier, dbCPURequest, dbMemoryRequest, dbCPULimit, dbMemoryLimit = oldTier, oldCPU, oldMem, oldCPULim, oldMemLim
+	}()
+
+	dbTier, dbCPURequest, dbMemoryRequest, dbCPULimit, dbMemoryLimit = "dev", "", "", "", ""
+	if buildDBResources() != nil {
+		t.Fatal("expected nil resources for dev tier without flags (BestEffort default)")
+	}
+
+	dbTier = "prod"
+	resources := buildDBResources()
+	requests, ok := resources["requests"].(map[string]interface{})
+	if !ok || requests["cpu"] != "250m" || requests["memory"] != "512Mi" {
+		t.Fatalf("expected prod default requests, got %#v", resources)
+	}
+
+	dbCPURequest, dbMemoryRequest, dbCPULimit, dbMemoryLimit = "500m", "1Gi", "2000m", "2Gi"
+	resources = buildDBResources()
+	requests, _ = resources["requests"].(map[string]interface{})
+	limits, _ := resources["limits"].(map[string]interface{})
+	if requests["cpu"] != "500m" || requests["memory"] != "1Gi" || limits["cpu"] != "2000m" || limits["memory"] != "2Gi" {
+		t.Fatalf("expected explicit flags to win, got %#v", resources)
 	}
 }
