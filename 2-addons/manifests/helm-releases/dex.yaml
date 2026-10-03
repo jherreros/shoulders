@@ -12,7 +12,7 @@ spec:
         kind: HelmRepository
         name: dex
         namespace: flux-system
-      version: "0.24.1"
+      version: "0.25.2"
   values:
     https:
       enabled: true
