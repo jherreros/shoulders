@@ -5,14 +5,14 @@ go 1.26.3
 require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
-	github.com/loft-sh/log v0.0.0-20250610153027-c2f046135b12
-	github.com/loft-sh/vcluster v0.36.0
+	github.com/loft-sh/log v0.0.0-20260812120051-874a69680b18
+	github.com/loft-sh/vcluster v0.37.2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/pterm/pterm v0.12.83
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	helm.sh/helm/v4 v4.2.4
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
@@ -162,6 +162,7 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
+	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
@@ -170,9 +171,9 @@ require (
 	github.com/lithammer/dedent v1.1.0 // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
 	github.com/loft-sh/admin-apis v0.0.0-20260721223200-58c89e54604e // indirect
-	github.com/loft-sh/agentapi/v4 v4.11.0-rc.5 // indirect
+	github.com/loft-sh/agentapi/v4 v4.12.0-rc.3 // indirect
 	github.com/loft-sh/analytics-client v0.0.0-20240219162240-2f4c64b2494e // indirect
-	github.com/loft-sh/api/v4 v4.11.0-rc.5 // indirect
+	github.com/loft-sh/api/v4 v4.12.0-rc.3 // indirect
 	github.com/loft-sh/apiserver v0.0.0-20260707184419-aef558a5ae8d // indirect
 	github.com/loft-sh/external-types v0.1.0-alpha.2.0.20260409132559-a38365a8cbf2 // indirect
 	github.com/loft-sh/image v0.0.0-20250625154753-87447a6ad364 // indirect
@@ -233,9 +234,9 @@ require (
 	github.com/xlab/treeprint v1.2.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
-	go.etcd.io/etcd/api/v3 v3.6.8 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.6.8 // indirect
-	go.etcd.io/etcd/client/v3 v3.6.8 // indirect
+	go.etcd.io/etcd/api/v3 v3.6.14 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.6.14 // indirect
+	go.etcd.io/etcd/client/v3 v3.6.14 // indirect
 	go.etcd.io/etcd/etcdutl/v3 v3.6.8 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.6.8 // indirect
 	go.etcd.io/etcd/server/v3 v3.6.8 // indirect
