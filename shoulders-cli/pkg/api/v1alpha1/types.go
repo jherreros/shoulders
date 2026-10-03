@@ -69,14 +69,15 @@ type StateStoreSpec struct {
 }
 
 type PostgresSpec struct {
-	Enabled    *bool    `json:"enabled,omitempty"`
-	Storage    string   `json:"storage,omitempty"`
-	Database   string   `json:"database,omitempty"`
-	SecretName string   `json:"secretName,omitempty"`
-	Username   string   `json:"username,omitempty"`
-	Password   string   `json:"password,omitempty"`
-	Databases  []string `json:"databases,omitempty"`
-	InitSQL    []string `json:"initSQL,omitempty"`
+	Enabled    *bool                  `json:"enabled,omitempty"`
+	Storage    string                 `json:"storage,omitempty"`
+	Database   string                 `json:"database,omitempty"`
+	SecretName string                 `json:"secretName,omitempty"`
+	Username   string                 `json:"username,omitempty"`
+	Password   string                 `json:"password,omitempty"`
+	Databases  []string               `json:"databases,omitempty"`
+	InitSQL    []string               `json:"initSQL,omitempty"`
+	Resources  map[string]interface{} `json:"resources,omitempty"`
 }
 
 type RedisSpec struct {
@@ -384,6 +385,7 @@ func copyStateStoreSpec(in StateStoreSpec) StateStoreSpec {
 		if in.Postgresql.InitSQL != nil {
 			out.Postgresql.InitSQL = append([]string(nil), in.Postgresql.InitSQL...)
 		}
+		out.Postgresql.Resources = copyConfig(in.Postgresql.Resources)
 	}
 	if in.Redis != nil {
 		out.Redis = &RedisSpec{

@@ -63,7 +63,7 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", defaultConfigPath(), "Path to config file")
-	rootCmd.PersistentFlags().StringArrayVar(&configOverrides, "set", nil, "Set a config value override (key=value), repeatable")
+	rootCmd.PersistentFlags().StringArrayVar(&configOverrides, "set", nil, "Set a config value override (key=value), repeatable. Overrides are ephemeral and are not saved to the config file")
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", string(output.Table), "Output format: table|json|yaml")
 
 	rootCmd.AddCommand(initCmd)

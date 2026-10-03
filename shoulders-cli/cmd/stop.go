@@ -22,6 +22,7 @@ var stopCmd = &cobra.Command{
 			return err
 		}
 		fmt.Printf("Cluster %q stopped\n", clusterName)
+		fmt.Println("Note: images loaded with 'app load-image' stay in the nodes across restarts, but keep their local copies until the platform is green again — pruning them removes your only way to reload.")
 		return nil
 	},
 }

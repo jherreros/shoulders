@@ -41,3 +41,13 @@ shoulders app list
 shoulders app describe <name>
 shoulders app delete <name>
 ```
+
+## Images
+
+vind node architecture follows your machine (arm64 on Apple Silicon).
+amd64-only images fail with `exec format error` — prefer
+`shoulders app build-image` + `load-image` over upstream prebuilts, and avoid
+amd64 digests or amd64-only bases. In zsh loops always brace the tag
+(`"${img}:local"`), and check ghcr.io reachability early if upstream
+Dockerfiles pull stages from there. Full notes:
+[Migrating existing apps](../guides/migrating-apps.md).

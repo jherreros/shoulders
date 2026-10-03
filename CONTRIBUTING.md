@@ -130,6 +130,9 @@ poll intervals. Guidelines:
 
 ## Cluster sizes and resource requirements
 
+User-facing version of this table (kept in sync — update both together) lives
+at `website/docs/guides/profiles.md`.
+
 vind clusters share the Docker Desktop VM, so profile weight shows up as
 node `DiskPressure`, evictions, and webhook timeouts — not just slowness.
 What each profile runs:

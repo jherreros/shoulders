@@ -13,9 +13,9 @@ const config: Config = {
     v4: true,
   },
 
-  // Production URL for juanherreros.com/shoulders (project Pages site)
-  url: 'https://juanherreros.com',
-  baseUrl: '/shoulders/',
+  // Production URL for shoulders.juanherreros.com (custom domain on this repo).
+  url: 'https://shoulders.juanherreros.com',
+  baseUrl: '/',
 
   organizationName: 'jherreros',
   projectName: 'shoulders',
