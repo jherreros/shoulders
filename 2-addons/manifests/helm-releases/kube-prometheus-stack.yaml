@@ -15,7 +15,7 @@ spec:
         kind: HelmRepository
         name: prometheus-community
         namespace: flux-system
-      version: "91.9.0"
+      version: "92.3.0"
   values:
     grafana:
       assertNoLeakedSecrets: false
