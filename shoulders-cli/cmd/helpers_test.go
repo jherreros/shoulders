@@ -136,17 +136,46 @@ func TestProfileWaitTargets(t *testing.T) {
 	small := config.ProfileSpecFor(config.ProfileSmall)
 	medium := config.ProfileSpecFor(config.ProfileMedium)
 
-	if hasNamedResource(platformDeploymentsForProfile(small), "policy-reporter", "policy-reporter-ui") {
+	if hasNamedResource(platformDeploymentsForTier(small, config.TierPlatform), "policy-reporter", "policy-reporter-ui") {
 		t.Fatalf("small profile should not wait for policy reporter deployment")
 	}
-	if hasNamedResource(gatewayRoutesForProfile(small), "policy-reporter", "policy-reporter") {
+	if hasNamedResource(gatewayRoutesForTier(small, config.TierPlatform), "policy-reporter", "policy-reporter") {
 		t.Fatalf("small profile should not wait for policy reporter route")
 	}
-	if !hasNamedResource(platformDeploymentsForProfile(medium), "policy-reporter", "policy-reporter-ui") {
+	if !hasNamedResource(platformDeploymentsForTier(medium, config.TierPlatform), "policy-reporter", "policy-reporter-ui") {
 		t.Fatalf("medium profile should wait for policy reporter deployment")
 	}
-	if !hasNamedResource(gatewayRoutesForProfile(medium), "policy-reporter", "policy-reporter") {
+	if !hasNamedResource(gatewayRoutesForTier(medium, config.TierPlatform), "policy-reporter", "policy-reporter") {
 		t.Fatalf("medium profile should wait for policy reporter route")
+	}
+}
+
+// TestWorkloadTierWaitsForNothingPlatform: a spoke does not run the platform
+// tier, so waiting for its deployments would never finish. It does wait for its
+// own Headlamp.
+func TestWorkloadTierWaitsForNothingPlatform(t *testing.T) {
+	medium := config.ProfileSpecFor(config.ProfileMedium)
+	deployments := platformDeploymentsForTier(medium, config.TierWorkload)
+	// A spoke has no backends, so it must not wait for any. The observability
+	// namespace itself is not platform-only any more: the spoke's own agent and
+	// its kube-state-metrics live there.
+	spokeObservability := map[string]bool{"kube-state-metrics": true, "alloy-agent": true}
+	for _, deployment := range deployments {
+		if deployment.ns == "dex" {
+			t.Fatalf("a workload-tier cluster waits for the platform-tier %v", deployment)
+		}
+		if deployment.ns == "observability" && !spokeObservability[deployment.name] {
+			t.Fatalf("a workload-tier cluster waits for the platform-tier %v", deployment)
+		}
+	}
+	if !hasNamedResource(deployments, "headlamp", "headlamp") {
+		t.Fatal("a workload-tier cluster should wait for its own headlamp")
+	}
+	routes := gatewayRoutesForTier(medium, config.TierWorkload)
+	for _, route := range routes {
+		if route.ns == "dex" || route.ns == "observability" {
+			t.Fatalf("a workload-tier cluster waits for the platform-tier route %v", route)
+		}
 	}
 }
 

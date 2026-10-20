@@ -149,3 +149,49 @@ spec:
     name: flux-system
   dependsOn:
     - name: helm-releases
+---
+# User workloads.
+#
+# Two Kustomizations, not one, because a Workspace owns its namespace: the
+# sample's XRs are namespaced in team-a, and that namespace does not exist until
+# the Workspace XR has been reconciled. Applying both in one Kustomization would
+# fail on the first pass and only converge on a retry; dependsOn makes the order
+# explicit.
+#
+# These two are the workload tier. A hub removes them (see
+# RemoveWorkloadTierKustomizations) so the tier split is symmetric.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: user-space-workspaces
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./3-user-space/workspaces
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: crossplane
+    - name: helm-releases
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: user-space-apps
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./3-user-space/team-a
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: shoulders-platform-config
+  dependsOn:
+    - name: user-space-workspaces

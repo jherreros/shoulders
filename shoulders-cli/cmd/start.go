@@ -17,7 +17,7 @@ var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start a previously stopped vind cluster",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if currentConfig.Provider() == config.ProviderExisting {
+		if targetCluster.ProviderOrDefault() == config.ProviderExisting {
 			if err := bootstrap.EnsureExistingCluster(cmd.Context(), kubeconfig); err != nil {
 				return err
 			}

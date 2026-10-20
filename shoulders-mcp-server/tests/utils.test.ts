@@ -4,7 +4,10 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-import { safeJsonParse, truncate, validateK8sName, validateImage, execCommand, getFreePort, resolveRepoRoot } from "../src/utils.js";
+import {
+  safeJsonParse, truncate, validateK8sName, validateImage, execCommand, getFreePort, resolveRepoRoot,
+  contextNameForCluster, resolveTargetCluster, loadKubeConfig
+} from "../src/utils.js";
 
 test("validateK8sName accepts valid names", () => {
   assert.doesNotThrow(() => validateK8sName("team-a", "workspace"));
@@ -92,3 +95,101 @@ test("resolveRepoRoot finds root with ROADMAP.md and shoulders-cli", async () =>
 });
 
 
+
+// --- Cluster resolution (D12) -------------------------------------------------
+//
+// The server used to always follow the kubeconfig's current-context. That is
+// only correct when exactly one cluster exists; with a topology it silently
+// addresses whichever cluster was selected last.
+
+const kubeconfigFixture = `
+apiVersion: v1
+kind: Config
+current-context: vcluster-docker_hub
+clusters:
+  - name: vcluster-docker_hub
+    cluster: { server: https://hub.example:8443 }
+  - name: vcluster-docker_spoke-a
+    cluster: { server: https://spoke-a.example:8443 }
+contexts:
+  - name: vcluster-docker_hub
+    context: { cluster: vcluster-docker_hub, user: hub }
+  - name: vcluster-docker_spoke-a
+    context: { cluster: vcluster-docker_spoke-a, user: spoke-a }
+users:
+  - name: hub
+    user: { token: t }
+  - name: spoke-a
+    user: { token: t }
+`;
+
+async function withKubeconfig(body: (dir: string, file: string) => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "shoulders-mcp-"));
+  const file = path.join(dir, "config");
+  await writeFile(file, kubeconfigFixture, "utf-8");
+  const previousKubeconfig = process.env.KUBECONFIG;
+  const previousCluster = process.env.SHOULDERS_CLUSTER;
+  process.env.KUBECONFIG = file;
+  delete process.env.SHOULDERS_CLUSTER;
+  try {
+    await body(dir, file);
+  } finally {
+    if (previousKubeconfig === undefined) delete process.env.KUBECONFIG;
+    else process.env.KUBECONFIG = previousKubeconfig;
+    if (previousCluster === undefined) delete process.env.SHOULDERS_CLUSTER;
+    else process.env.SHOULDERS_CLUSTER = previousCluster;
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("contextNameForCluster adds the vind prefix but is idempotent", () => {
+  assert.equal(contextNameForCluster("hub"), "vcluster-docker_hub");
+  assert.equal(contextNameForCluster("vcluster-docker_hub"), "vcluster-docker_hub");
+});
+
+test("resolveTargetCluster reads SHOULDERS_CLUSTER and ignores blanks", () => {
+  delete process.env.SHOULDERS_CLUSTER;
+  assert.equal(resolveTargetCluster(), null);
+  process.env.SHOULDERS_CLUSTER = "   ";
+  assert.equal(resolveTargetCluster(), null);
+  process.env.SHOULDERS_CLUSTER = "  spoke-a  ";
+  assert.equal(resolveTargetCluster(), "spoke-a");
+  delete process.env.SHOULDERS_CLUSTER;
+});
+
+test("loadKubeConfig follows the current-context when no cluster is requested", async () => {
+  await withKubeconfig(async () => {
+    const { kubeConfig } = loadKubeConfig();
+    assert.equal(kubeConfig.getCurrentContext(), "vcluster-docker_hub");
+  });
+});
+
+test("loadKubeConfig honours an explicit cluster over the current-context", async () => {
+  await withKubeconfig(async () => {
+    const { kubeConfig } = loadKubeConfig("spoke-a");
+    assert.equal(kubeConfig.getCurrentContext(), "vcluster-docker_spoke-a");
+  });
+});
+
+test("loadKubeConfig honours SHOULDERS_CLUSTER", async () => {
+  await withKubeconfig(async () => {
+    process.env.SHOULDERS_CLUSTER = "spoke-a";
+    const { kubeConfig } = loadKubeConfig();
+    assert.equal(kubeConfig.getCurrentContext(), "vcluster-docker_spoke-a");
+  });
+});
+
+test("loadKubeConfig fails loudly for an unknown cluster rather than falling back", async () => {
+  await withKubeconfig(async () => {
+    // A silent fallback here would answer questions about spoke-a with the
+    // hub's data, which is worse than an error.
+    assert.throws(
+      () => loadKubeConfig("nope"),
+      (error: Error) => {
+        assert.match(error.message, /nope/);
+        assert.match(error.message, /hub, spoke-a/);
+        return true;
+      }
+    );
+  });
+});

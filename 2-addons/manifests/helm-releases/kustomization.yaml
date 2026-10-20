@@ -18,6 +18,8 @@ resources:
   - tempo.yaml
   - kube-prometheus-stack.yaml
   - alloy.yaml
+  - alloy-agent.yaml
+  - kube-state-metrics.yaml
   - trivy-operator.yaml
   - trivy-operator-polr-adapter.yaml
   - falco.yaml

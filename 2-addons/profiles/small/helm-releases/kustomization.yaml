@@ -2,6 +2,7 @@ resources:
   - ../../../manifests/helm-releases
 
 patches:
+  - path: cilium.yaml
   - path: delete-alloy.yaml
   - path: delete-falco.yaml
   - path: delete-loki.yaml

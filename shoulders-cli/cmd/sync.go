@@ -32,11 +32,16 @@ clusters (or when ociRepository.url is set), the artifact is pushed to that
 registry directly.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile := currentConfig.Profile()
-		source, tag, err := prepareLocalOCISource(cmd.Context(), profile)
+		source, tag, err := prepareLocalOCISource(cmd.Context(), profile,
+			targetCluster.Tier() == config.TierWorkload)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("Pushed snapshot %s to %s\n", tag, source.OCIURL)
+		source, err = attachSopsAgeKey(source)
+		if err != nil {
+			return err
+		}
 		if err := bootstrap.ApplyFluxSourceAndKustomizations(cmd.Context(), kubeconfig, source); err != nil {
 			return fmt.Errorf("apply flux source: %w", err)
 		}
@@ -61,7 +66,7 @@ registry directly.`,
 // prepareLocalOCISource snapshots the working tree, pushes it, and records
 // the new OCI coordinates in the runtime config (persisted to disk so later
 // `up`/`status` runs agree). It returns the FluxSource to apply and the tag.
-func prepareLocalOCISource(ctx context.Context, profile string) (bootstrap.FluxSource, string, error) {
+func prepareLocalOCISource(ctx context.Context, profile string, workloadTier bool) (bootstrap.FluxSource, string, error) {
 	root, err := cli.FindRepoRoot()
 	if err != nil {
 		return bootstrap.FluxSource{}, "", fmt.Errorf("local sync requires a Shoulders checkout: %w", err)
@@ -74,7 +79,7 @@ func prepareLocalOCISource(ctx context.Context, profile string) (bootstrap.FluxS
 	pullURL := currentConfig.FluxOCIURL()
 	insecure := currentConfig.FluxOCIInsecure()
 
-	if currentConfig.Provider() == config.ProviderVind && (pullURL == "" || pullURL == ocisource.PullURL()) {
+	if targetCluster.ProviderOrDefault() == config.ProviderVind && (pullURL == "" || pullURL == ocisource.PullURL()) {
 		// Local iteration: throwaway in-cluster registry, push via
 		// port-forward, pull via cluster DNS. Matching the well-known
 		// local pull URL counts as local mode so repeated syncs keep
@@ -101,10 +106,13 @@ func prepareLocalOCISource(ctx context.Context, profile string) (bootstrap.FluxS
 	currentConfig.Platform.Flux.Source = config.FluxSourceOCI
 	currentConfig.Platform.Flux.OCIRepository.URL = pullURL
 	currentConfig.Platform.Flux.OCIRepository.Tag = snapshot.Tag
-	currentConfig.Platform.Flux.OCIRepository.Insecure = insecure
+	currentConfig.Platform.Flux.OCIRepository.Insecure = &insecure
 	// NOTE: not persisted here. Callers save after the cluster state has
 	// converged so a failed run cannot leave half-migrated config behind.
-	return bootstrap.FluxSourceFromConfig(currentConfig, profile), snapshot.Tag, nil
+	// The tier is carried over: the local source replaces the git one, but it
+	// must not silently become the platform tier. A spoke that reconciled the
+	// platform tier by accident would install the hub's addons.
+	return bootstrap.FluxSourceFromConfigTier(currentConfig, profile, workloadTier), snapshot.Tag, nil
 }
 
 // pushToLocalRegistry ensures the in-cluster registry, opens a port-forward,

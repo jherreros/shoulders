@@ -150,17 +150,25 @@ Current config fields:
 ```yaml
 current_workspace: ""
 
+# Single-cluster form. Still supported; desugars into a one-entry `clusters`
+# list with role `hub`.
 cluster:
   provider: vind          # vind | existing
   name: shoulders
   kubeconfig: ""
   context: ""
 
+# Shared platform settings. Every cluster inherits these and overrides only
+# what differs.
 platform:
-  profile: medium        # small | medium | large
+  profile: medium         # small | medium | large
   cilium:
     enabled: true
     version: "1.19.2"
+  mesh:
+    enabled: false        # experimental: shared network + per-cluster pod CIDR
+    network: ""           # shared Docker network name (default shoulders-mesh)
+    podCIDRBase: 0        # second octet for per-cluster pod CIDRs (default 16)
   flux:
     source: git             # git | oci
     gitRepository:
@@ -171,6 +179,21 @@ platform:
       tag: ""               # immutable artifact tag, not latest (required when source: oci)
       insecure: false       # true for plain-HTTP registries (e.g. the automatic vind local registry)
     pathPrefix: "."
+
+# Topology. Omit entirely for monocluster.
+clusters:
+  - name: hub
+    role: hub                # hub | spoke | edge
+    ports:                   # host bindings; only one vind cluster may claim a port
+      http: 80
+      https: 443
+  - name: spoke-a
+    role: spoke
+    ports:
+      http: 8080
+      https: 8443
+    flux:
+      pathPrefix: "clusters/spoke-a"
 ```
 
 Notes:
@@ -180,6 +203,77 @@ Notes:
 - Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
+- **Cilium is bootstrapped by the CLI, then adopted by Flux.** The CLI installs
+  it because Flux cannot reconcile anything until a CNI is running;
+  `2-addons/manifests/helm-releases/cilium.yaml` is a `HelmRelease` named to
+  match that release exactly, so `helm-controller` takes it over rather than
+  creating a second one. Values split by **ownership**, not precedence: static
+  values live in git, while the ones discovered at install time and differing per
+  cluster (`k8sServiceHost`/`Port`, and `cluster.name`/`id` plus the
+  `clustermesh` peer list for a mesh) are published by the CLI to the
+  `shoulders-cilium-cluster` ConfigMap and pulled in via `valuesFrom`. The key
+  sets are deliberately disjoint, because Flux merges inline values *over*
+  `valuesFrom` — an overlap would let git silently override what the CLI
+  discovered. `optional: true` keeps the non-CLI `kubectl apply -k` path working.
+- `clusters:` describes the topology. Each entry overlays the shared `platform:`
+  block and states only what differs. Omitting it entirely keeps today's
+  monocluster behaviour: the single `cluster:` block desugars into a one-entry
+  topology with role `hub`, and saving does not rewrite the file.
+- `role` is a **label, not behaviour** — with one exception: it selects the
+  cluster's **tier**. The hub runs the platform tier (Dex, observability,
+  policy, the control-plane surfaces); a spoke runs the workload tier (the
+  workload compositions and their local stateful dependencies). Host ports, mesh
+  enablement and profile stay explicit configuration. A topology must declare
+  exactly one `hub`.
+- **The hub owns the domain.** `platform.domain` decides the platform
+  hostnames — `dex.<domain>`, `grafana.<domain>` — and only the hub serves
+  them, so a spoke declares no domain at all. In a topology the hub must
+  declare one (on a laptop, `domain: hub.127.0.0.1.sslip.io` works), and two
+  clusters declaring the same domain is rejected.
+- A topology install looks like this:
+
+  ```yaml
+  platform:
+    profile: small
+    mesh:
+      enabled: true
+  clusters:
+    - name: hub
+      role: hub
+      domain: hub.127.0.0.1.sslip.io
+    - name: spokea
+      role: spoke
+      ports: { http: 8080, https: 8443 }
+  ```
+
+  `shoulders up` installs the hub first and then each spoke, and
+  `shoulders down` removes them all again.
+- Each cluster declares its own `ports:` because only one `vind` cluster can bind
+  a given host port. Validation rejects two `vind` clusters claiming the same
+  port; `provider: existing` clusters bind nothing and may share.
+- `platform.mesh` is **experimental and off by default**. When enabled, every
+  cluster joins one shared Docker network and receives a distinct /16 pod CIDR
+  derived from its name, and Cilium is installed as a ClusterMesh participant.
+  Both are prerequisites that vCluster's defaults violate, and the Cilium values
+  are not chart defaults — see `docs/multi-cluster-evidence.md` §12 for what was
+  measured and why. `docs/multi-cluster-target.md` records the full topology
+  design and which parts are implemented. `platform.mesh.encryption: wireguard`
+  turns on WireGuard for pod-to-pod traffic and must be the same on every
+  cluster; node encryption is deliberately off because Cilium's control-plane
+  opt-out otherwise breaks the ClusterMesh and telemetry host paths on a cold
+  install (evidence §20). Network policy is cluster-local by default; a rule
+  that must reach another cluster names it with
+  `io.cilium.k8s.policy.cluster`.
+- `shoulders up` on a topology installs **every** cluster, hub first. The hub is
+  installed first because it mints the Cilium trust anchor that every peer must
+  be seeded with before its own Cilium install. Pass `--cluster <name>` or
+  `--name <name>` to install exactly one — worth knowing, because in a topology a
+  bare `up` is a bulk operation.
+- Every command that talks to a cluster resolves one through the global
+  `--cluster` flag, so a topology never needs an ambient kube context. The MCP
+  server takes the same selector as `SHOULDERS_CLUSTER`.
+- Two clusters sharing a `platform.domain` would collide on hostnames; give each
+  cluster its own domain when running more than one.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
 - `platform.flux.source: oci` with `ociRepository.url`/`tag` reconciles the same Kustomization paths from a pre-pushed OCI artifact (same directory layout, immutable tag) instead of git. Useful for local dirty-tree iteration and airgap installs once the snapshot push (Phase 1) and bundle vendoring (Phase 2) land.
 

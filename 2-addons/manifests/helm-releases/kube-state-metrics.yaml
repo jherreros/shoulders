@@ -1,0 +1,21 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-state-metrics
+  namespace: observability
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: kube-state-metrics
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      version: "8.6.0"
+  values:
+    # A spoke runs this so the hub can see its workload objects. Nothing in the
+    # spoke scrapes it — there is no Prometheus there — so the ServiceMonitor is
+    # off: it would need the monitoring CRDs, which a spoke does not have.
+    selfMonitor:
+      enabled: false

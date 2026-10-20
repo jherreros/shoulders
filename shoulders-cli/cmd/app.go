@@ -167,7 +167,7 @@ var appBuildImageCmd = &cobra.Command{
 	Short: "Build and load a local image into a vind cluster",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if currentConfig.Provider() != config.ProviderVind {
+		if targetCluster.ProviderOrDefault() != config.ProviderVind {
 			return fmt.Errorf("local image loading requires cluster.provider: vind")
 		}
 		image := args[0]
@@ -195,7 +195,7 @@ var appLoadImageCmd = &cobra.Command{
 	Short: "Load a local Docker image into a vind cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if currentConfig.Provider() != config.ProviderVind {
+		if targetCluster.ProviderOrDefault() != config.ProviderVind {
 			return fmt.Errorf("local image loading requires cluster.provider: vind")
 		}
 		image := args[0]

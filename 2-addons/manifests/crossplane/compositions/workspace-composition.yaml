@@ -41,6 +41,11 @@ spec:
                   - fromEntities:
                       - host
                   - fromEndpoints:
+                      # Local-only on purpose. Every stateful dependency (CNPG,
+                      # Garage) runs in this cluster, so the workspace must not
+                      # reach a same-named namespace in another cluster. Cilium
+                      # 1.19+ enforces local scope by default; do not add a
+                      # cluster selector without a cross-cluster requirement.
                       - matchLabels:
                           k8s:io.kubernetes.pod.namespace: kube-system
                       - matchLabels:

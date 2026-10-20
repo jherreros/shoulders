@@ -213,6 +213,21 @@ func RequestKustomizationReconcile(ctx context.Context, client dynamic.Interface
 	return err
 }
 
+// RequestHelmReleaseReconcile triggers a Flux HelmRelease reconciliation.
+//
+// The Cilium hand-off needs this after it changes the values ConfigMap: the
+// helm-controller does not necessarily wake on a valuesFrom change, and the
+// agents must not be restarted until the resulting Helm revision is deployed.
+func RequestHelmReleaseReconcile(ctx context.Context, client dynamic.Interface, namespace, name string, requestedAt time.Time) error {
+	patch := reconcileRequestedAtPatch(requestedAt)
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	_, err = client.Resource(kube.HelmReleaseGVR()).Namespace(namespace).Patch(ctx, name, types.MergePatchType, payload, metav1.PatchOptions{})
+	return err
+}
+
 // RequestSourceReconcile triggers a Flux source (GitRepository or
 // OCIRepository) reconciliation. sourceKind is "GitRepository" or
 // "OCIRepository".

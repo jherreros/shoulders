@@ -17,22 +17,54 @@ var clusterCmd = &cobra.Command{
 
 var clusterListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List existing clusters or kube contexts",
+	Short: "List topology clusters, or clusters/kube contexts for a single-cluster config",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var (
-			clusters []string
-			err      error
-		)
-		if currentConfig.Provider() == config.ProviderExisting {
-			clusters, err = kube.ListContexts(kubeconfig)
-		} else {
-			clusters, err = bootstrap.ListClusters()
-		}
+		format, err := outputOption()
 		if err != nil {
 			return err
 		}
 
-		format, err := outputOption()
+		// A declared topology is the source of truth, so show it rather than
+		// whatever clusters or contexts happen to exist.
+		if len(currentConfig.Clusters) > 0 {
+			topology, tErr := currentConfig.Topology()
+			if tErr != nil {
+				return tErr
+			}
+			if format == output.Table {
+				rows := [][]string{}
+				for _, cluster := range topology.Clusters {
+					marker := ""
+					if targetCluster != nil && cluster.Name == targetCluster.Name {
+						marker = "*"
+					}
+					ports := cluster.Ports.WithDefaults()
+					rows = append(rows, []string{
+						marker,
+						cluster.Name,
+						cluster.Role,
+						cluster.ProviderOrDefault(),
+						cluster.Profile,
+						fmt.Sprintf("%d/%d", ports.HTTP, ports.HTTPS),
+					})
+				}
+				return output.PrintTable([]string{"", "NAME", "ROLE", "PROVIDER", "PROFILE", "PORTS"}, rows)
+			}
+			payload, err := output.Render(topology.Clusters, format)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(payload))
+			return nil
+		}
+
+		var clusters []string
+		if targetCluster.ProviderOrDefault() == config.ProviderExisting {
+			clusters, err = kube.ListContexts(kubeconfig)
+		} else {
+			clusters, err = bootstrap.ListClusters()
+		}
 		if err != nil {
 			return err
 		}
@@ -61,14 +93,21 @@ var clusterUseCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		contextName := name
-		if currentConfig.Provider() != config.ProviderExisting {
+		if targetCluster.ProviderOrDefault() != config.ProviderExisting {
 			contextName = bootstrap.ContextPrefix + name
 		}
 
 		if err := kube.SwitchContext(kubeconfig, contextName); err != nil {
 			return err
 		}
-		if currentConfig.Provider() == config.ProviderExisting {
+		// Update the right place: a topology entry when one is declared, or the
+		// legacy `cluster:` block for a single-cluster config. Writing the legacy
+		// block alongside `clusters:` would leave two competing sources of truth.
+		if len(currentConfig.Clusters) > 0 {
+			if err := currentConfig.SetClusterContext(name, contextName); err != nil {
+				return err
+			}
+		} else if targetCluster.ProviderOrDefault() == config.ProviderExisting {
 			currentConfig.Cluster.Context = contextName
 		} else {
 			currentConfig.Cluster.Name = name

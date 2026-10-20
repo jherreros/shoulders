@@ -65,6 +65,15 @@ spec:
       prometheusSpec:
         retention: 24h
         retentionSize: 1GiB
+        # The hub is the only Prometheus in the topology, so it is also the
+        # remote-write receiver for every spoke's agent (D13). A spoke pushes;
+        # the hub never reaches into a spoke for telemetry, which is what keeps
+        # the credential flow one-directional.
+        enableRemoteWriteReceiver: true
+        # The hub's own series carry the same label a spoke's agent attaches, so
+        # one query can group by cluster and get a whole answer.
+        externalLabels:
+          cluster: ${SHOULDERS_CLUSTER_NAME}
         serviceMonitorSelectorNilUsesHelmValues: false
         serviceMonitorSelector: {}
         serviceMonitorNamespaceSelector: {}

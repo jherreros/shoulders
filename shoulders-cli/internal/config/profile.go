@@ -1,14 +1,20 @@
 package config
 
+// ProfileSpec describes what a profile includes.
+//
+// Note that Cilium's observability (the hubble UI, the Cilium dashboards) is
+// deliberately absent: it is expressed in git, in
+// 2-addons/profiles/<profile>/helm-releases/cilium.yaml, because the CLI
+// cannot set it — flux merges the manifest's inline values over the values the
+// CLI publishes, so a value set here would be silently overridden. See
+// docs/multi-cluster-target.md R5.
 type ProfileSpec struct {
 	Name                string
 	EventStreams        bool
 	PolicyReporter      bool
 	Trivy               bool
 	Falco               bool
-	HubbleUI            bool
 	LogTracePipeline    bool
-	CiliumObservability bool
 	PostgresInstances   int
 	KafkaReplicas       int
 	KafkaMinISR         int
@@ -40,9 +46,7 @@ func ProfileSpecFor(profile string) ProfileSpec {
 			PolicyReporter:      true,
 			Trivy:               true,
 			Falco:               true,
-			HubbleUI:            true,
 			LogTracePipeline:    true,
-			CiliumObservability: true,
 			PostgresInstances:   2,
 			KafkaReplicas:       3,
 			KafkaMinISR:         2,
@@ -57,9 +61,7 @@ func ProfileSpecFor(profile string) ProfileSpec {
 			PolicyReporter:      true,
 			Trivy:               true,
 			Falco:               true,
-			HubbleUI:            true,
 			LogTracePipeline:    true,
-			CiliumObservability: true,
 			PostgresInstances:   2,
 			KafkaReplicas:       3,
 			KafkaMinISR:         2,

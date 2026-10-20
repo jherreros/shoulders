@@ -3,16 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/jherreros/shoulders/shoulders-cli/internal/airgap"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/bootstrap"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/flux"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
-	"github.com/jherreros/shoulders/shoulders-cli/internal/manifests"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -33,313 +29,7 @@ Pre-flights host ports 80/443 and Docker disk headroom before creating
 anything. Check the Profiles guide for per-profile Docker Desktop minimums
 (small: 8 CPUs / 8-12 GiB / ~25 GiB free disk; medium and large need
 devserver-class resources).`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if notice := setOverridesNotice(); notice != "" {
-			fmt.Println(notice)
-		}
-		if upLocal && upBundle != "" {
-			return fmt.Errorf("cannot combine --local and --bundle")
-		}
-		if upBundle != "" && currentConfig.Provider() == config.ProviderExisting {
-			return fmt.Errorf("--bundle on provider existing requires pre-mirrored images; automatic image import only supports vind")
-		}
-		clusterName := configuredClusterName(cmd, "name", upClusterName)
-		profileSpec := currentConfig.ProfileSpec()
-		publicConfig := bootstrap.PublicDomainConfig{
-			DexHost:          currentConfig.DexHost(),
-			GrafanaHost:      currentConfig.GrafanaHost(),
-			HeadlampHost:     currentConfig.HeadlampHost(),
-			ReporterHost:     currentConfig.ReporterHost(),
-			PrometheusHost:   currentConfig.PrometheusHost(),
-			AlertmanagerHost: currentConfig.AlertmanagerHost(),
-			HubbleHost:       currentConfig.HubbleHost(),
-		}
-		var err error
-		if currentConfig.HasCustomDomain() {
-			publicConfig.TLS, err = bootstrap.GenerateDexTLSMaterial(publicConfig.DexHost)
-		} else {
-			publicConfig.TLS, err = bootstrap.DefaultDexTLSMaterial()
-		}
-		if err != nil {
-			return fmt.Errorf("prepare dex tls material: %w", err)
-		}
-
-		authConfig := manifests.AuthenticationConfig
-		if currentConfig.HasCustomDomain() {
-			authConfig = bootstrap.RenderAuthenticationConfig(publicConfig.DexHost, publicConfig.TLS.CAPEM)
-		}
-
-		tracker := tui.NewPhaseTracker(upPhases(), upVerbose)
-		defer tracker.Stop()
-
-		// Phase 1: cluster preparation
-		if currentConfig.Provider() == config.ProviderExisting {
-			tracker.Start(verboseDetail("connecting to existing cluster context %q", currentConfig.Cluster.Context))
-			if err := bootstrap.EnsureExistingCluster(cmd.Context(), kubeconfig); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to connect to existing cluster: %w", err)
-			}
-		} else {
-			tracker.Start(verboseDetail("creating vind cluster %q using %s profile", clusterName, profileSpec.Name))
-			// vind maps container ports 80/443 to the host: fail fast with a
-			// named remedy instead of a raw docker bind error mid-install.
-			if err := bootstrap.CheckHostPortsAvailable(cmd.Context(), clusterName, []int{80, 443}); err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			// A full Docker disk causes the disk-pressure death spiral:
-			// refuse before creating anything.
-			if err := bootstrap.CheckDiskHeadroom(bootstrap.ProfileDiskMinimum(profileSpec.Name)); err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			if warn, err := bootstrap.DockerResourceWarning(cmd.Context()); err == nil && warn != "" {
-				tracker.UpdateDetail(warn)
-			}
-			// Snapshot the kubeconfig before vind rewrites it: a failed
-			// create can otherwise leave it nulled.
-			kubeconfigRestore, err := bootstrap.BackupKubeconfig(kubeconfig)
-			if err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			if err := bootstrap.EnsureVindCluster(cmd.Context(), clusterName, manifests.VindConfigForProfile(profileSpec.Name), authConfig, publicConfig.DexHost); err != nil {
-				if kubeconfigRestore != nil {
-					if rErr := kubeconfigRestore(); rErr != nil {
-						tracker.Fail(rErr.Error())
-						return fmt.Errorf("failed to create vind cluster: %w (kubeconfig restore also failed: %v)", err, rErr)
-					}
-				}
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to create vind cluster: %w", err)
-			}
-			// vind freezes cluster DNS state at creation; reconcile
-			// forwarding right away so later phases never depend on
-			// stale upstreams. Best effort only.
-			if changed, err := bootstrap.EnsureClusterDNS(cmd.Context(), kubeconfig); err != nil {
-				tracker.UpdateDetail(verboseDetail("cluster DNS reconcile warning: %v", err))
-			} else if changed {
-				tracker.UpdateDetail(verboseDetail("reconciled cluster DNS forwarding"))
-			}
-		}
-		tracker.Complete()
-
-		// Bundle preparation: extract once, import all images directly into
-		// the vind nodes before anything is installed, so no workload ever
-		// pulls from the internet. Direct ctr import (with retries) is used
-		// instead of the local registry on purpose: on a fresh cluster the
-		// nodes are tainted until Cilium is up, the registry PVC cannot bind
-		// until the provisioner schedules, and node containers cannot
-		// resolve cluster DNS — the registry is only usable after Cilium,
-		// which itself needs its images first.
-		var bundleMeta *airgap.BundleMeta
-		var bundleDir string
-		var bundleCleanup func()
-		if upBundle != "" {
-			tracker.Start(verboseDetail("extracting airgap bundle and importing images"))
-			extractDir, err := airgap.ExtractBundle(upBundle)
-			if err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			bundleDir = extractDir
-			bundleCleanup = func() {
-				os.RemoveAll(extractDir) //nolint:errcheck // best-effort temp cleanup
-			}
-			defer bundleCleanup()
-			meta, err := airgap.ReadBundleMeta(extractDir)
-			if err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			bundleMeta = meta
-			tars, err := airgap.BundleImageTars(extractDir, len(meta.Images))
-			if err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			tracker.UpdateDetail(verboseDetail("importing %d container images directly", len(tars)))
-			if err := airgap.ImportImageTars(cmd.Context(), clusterName, tars, func(message string) {
-				tracker.UpdateDetail(verboseDetail("%s", message))
-			}); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("import bundle images: %w", err)
-			}
-			tracker.Complete()
-		}
-
-		// Phase 2: networking prerequisites
-		detail := verboseDetail("installing Gateway API CRDs")
-		if currentConfig.CiliumEnabled() {
-			detail = verboseDetail("installing Gateway API CRDs and Cilium Helm chart with gatewayAPI")
-		}
-		tracker.Start(detail)
-		// Install Gateway API CRDs before Cilium so the operator can
-		// register the GatewayClass controller on startup.
-		if err := kube.ApplyManifest(cmd.Context(), kubeconfig, manifests.GatewayAPICRDs, ""); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to install gateway api crds: %w", err)
-		}
-		if currentConfig.CiliumEnabled() {
-			if bundleMeta != nil {
-				ciliumChart, err := bundleMeta.FindChart("cilium", currentConfig.CiliumVersion())
-				if err != nil {
-					tracker.Fail(err.Error())
-					return fmt.Errorf("bundle cilium chart: %w", err)
-				}
-				if err := bootstrap.EnsureCiliumWithChart(kubeconfig, currentConfig.CiliumVersion(), bootstrap.CiliumOptionsForProfile(profileSpec.Name), filepath.Join(bundleDir, airgap.BundleChartsDir, ciliumChart.File)); err != nil {
-					tracker.Fail(err.Error())
-					return fmt.Errorf("failed to install cilium: %w", err)
-				}
-			} else if err := bootstrap.EnsureCilium(kubeconfig, currentConfig.CiliumVersion(), bootstrap.CiliumOptionsForProfile(profileSpec.Name)); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to install cilium: %w", err)
-			}
-			if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to restart stuck pods: %w", err)
-			}
-			if bundleMeta != nil {
-				// Bundle installs serve charts from the local registry in
-				// Phase 3, which needs schedulable nodes (registry PVC) and
-				// programmed ClusterIPs (kube-proxy replacement). Both only
-				// hold once the Cilium agents are Ready.
-				tracker.UpdateDetail(verboseDetail("waiting for cilium agents"))
-				if err := bootstrap.WaitForDaemonSetReady(kubeconfig, "kube-system", "cilium", 10*time.Minute); err != nil {
-					tracker.Fail(err.Error())
-					return fmt.Errorf("wait for cilium agents: %w", err)
-				}
-			}
-		}
-		tracker.Complete()
-
-		// Phase 3: Flux install
-		tracker.Start(verboseDetail("downloading Flux install manifest and applying source + Kustomizations"))
-		fluxSource := bootstrap.FluxSourceFromConfig(currentConfig, profileSpec.Name)
-		fluxManifest := []byte(nil)
-		if upLocal {
-			tracker.UpdateDetail(verboseDetail("snapshotting local working tree and pushing OCI artifact"))
-			localSource, _, err := prepareLocalOCISource(cmd.Context(), profileSpec.Name)
-			if err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-			fluxSource = localSource
-		}
-		if bundleMeta != nil {
-			var err error
-			fluxSource, fluxManifest, err = prepareBundleFluxSource(cmd.Context(), tracker, bundleMeta, bundleDir, profileSpec.Name)
-			if err != nil {
-				tracker.Fail(err.Error())
-				return err
-			}
-		}
-		if fluxManifest != nil {
-			if err := bootstrap.EnsureFluxWithManifest(context.Background(), kubeconfig,
-				fluxSource,
-				publicConfig,
-				fluxManifest,
-			); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to install flux: %w", err)
-			}
-		} else if err := bootstrap.EnsureFlux(context.Background(), kubeconfig,
-			fluxSource,
-			publicConfig,
-		); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to install flux: %w", err)
-		}
-		if upLocal {
-			if err := saveCurrentConfig(); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to persist local OCI source: %w", err)
-			}
-		}
-		// Always suspend the Flux-managed Cilium HelmRelease. When Cilium is
-		// enabled, the CLI manages the installation directly; when it is
-		// disabled, this keeps Flux from installing it implicitly.
-		if err := bootstrap.SuspendCiliumHelmRelease(kubeconfig); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to suspend cilium helmrelease: %w", err)
-		}
-		tracker.Complete()
-
-		// Phase 4: Flux reconciliation
-		tracker.Start("waiting for kustomizations...")
-		if err := waitForFluxTUI(tracker); err != nil {
-			tracker.Fail(err.Error())
-			return err
-		}
-		// Delete any pods stuck in ContainerCreating from the initial
-		// Flux reconciliation. The burst of pod creation can overwhelm
-		// Cilium's endpoint API, leaving pods in exponential backoff.
-		if currentConfig.CiliumEnabled() {
-			if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("failed to restart stuck pods: %w", err)
-			}
-			// Cilium replaces kube-proxy: wait for the agents so service
-			// routing is programmed before Flux and workloads start.
-			tracker.UpdateDetail(verboseDetail("waiting for cilium agents"))
-			if err := bootstrap.WaitForDaemonSetReady(kubeconfig, "kube-system", "cilium", 10*time.Minute); err != nil {
-				tracker.Fail(err.Error())
-				return fmt.Errorf("wait for cilium agents: %w", err)
-			}
-		}
-		tracker.Complete()
-
-		// Phase 5: Platform deployments
-		deployments := platformDeploymentsForProfile(profileSpec)
-		tracker.Start(verboseDetail("waiting for %d deployments plus Garage object storage", len(deployments)))
-		for _, d := range deployments {
-			tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s", d.ns, d.name))
-			if err := bootstrap.WaitForDeploymentReady(kubeconfig, d.ns, d.name, 10*time.Minute); err != nil {
-				tracker.Fail(fmt.Sprintf("%s/%s not ready", d.ns, d.name))
-				return fmt.Errorf("failed waiting for %s deployment: %w", d.name, err)
-			}
-		}
-		tracker.UpdateDetail("waiting for garage/garage StatefulSet")
-		if err := bootstrap.WaitForStatefulSetReady(kubeconfig, "garage", "garage", 10*time.Minute); err != nil {
-			tracker.Fail("garage/garage not ready")
-			return fmt.Errorf("failed waiting for garage statefulset: %w", err)
-		}
-		tracker.UpdateDetail("waiting for garage layout initialization")
-		if err := bootstrap.WaitForJobComplete(kubeconfig, "garage", "garage-layout-init", 10*time.Minute); err != nil {
-			tracker.Fail("garage layout not initialized")
-			return fmt.Errorf("failed waiting for garage layout initialization: %w", err)
-		}
-		tracker.Complete()
-
-		// Phase 6: Gateway routes
-		tracker.Start(verboseDetail("resolving HTTPRoutes"))
-		if gatewayChecksRequired() {
-			routes := gatewayRoutesForProfile(profileSpec)
-			for _, r := range routes {
-				tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s HTTPRoute", r.ns, r.name))
-				if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, r.ns, r.name, 5*time.Minute); err != nil {
-					tracker.Fail(fmt.Sprintf("%s route not resolved", r.name))
-					return fmt.Errorf("failed waiting for %s route: %w", r.name, err)
-				}
-			}
-		} else {
-			tracker.UpdateDetail(verboseDetail("skipping HTTPRoute checks because cilium is disabled"))
-		}
-		tracker.Complete()
-
-		// Phase 7: Status validation
-		tracker.Start(verboseDetail("waiting for shoulders status to report all systems healthy"))
-		if err := waitForHealthyStatus(cmd.Context(), 5*time.Minute); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to validate cluster status: %w", err)
-		}
-		tracker.Complete()
-
-		fmt.Println()
-		fmt.Println(tracker.Summary())
-		fmt.Println()
-		return nil
-	},
+	RunE: runUp,
 }
 
 type namedPlatformResource struct {
@@ -356,7 +46,25 @@ func setOverridesNotice() string {
 	return fmt.Sprintf("Note: --set overrides are ephemeral and are not saved to %q; edit the file to persist them.", loadedConfigPath)
 }
 
-func platformDeploymentsForProfile(profile config.ProfileSpec) []namedPlatformResource {
+// platformDeploymentsForTier lists the deployments a cluster's tier is expected
+// to have.
+//
+// A workload-tier cluster runs none of them: Dex, Headlamp and the
+// observability backends are the platform tier, and they live in the hub. The
+// list has to match what the cluster actually installs, or the wait never
+// completes — which is what waiting for "dex/dex" on a spoke does.
+func platformDeploymentsForTier(profile config.ProfileSpec, tier config.ClusterTier) []namedPlatformResource {
+	if tier == config.TierWorkload {
+		// A spoke has no platform tier, but it does have its own Headlamp and
+		// its own policy engine: admission control on the hub cannot admit a
+		// pod on a spoke.
+		return []namedPlatformResource{
+			{"headlamp", "headlamp"},
+			{"kyverno", "kyverno-admission-controller"},
+			{"observability", "kube-state-metrics"},
+			{"observability", "alloy-agent"},
+		}
+	}
 	deployments := []namedPlatformResource{
 		{"dex", "dex"},
 		{"headlamp", "headlamp"},
@@ -368,7 +76,13 @@ func platformDeploymentsForProfile(profile config.ProfileSpec) []namedPlatformRe
 	return deployments
 }
 
-func gatewayRoutesForProfile(profile config.ProfileSpec) []namedPlatformResource {
+// gatewayRoutesForTier lists the gateway routes a cluster's tier is expected to
+// have. The spoke serves its own workloads through its own gateway, not the
+// platform's routes.
+func gatewayRoutesForTier(profile config.ProfileSpec, tier config.ClusterTier) []namedPlatformResource {
+	if tier == config.TierWorkload {
+		return []namedPlatformResource{{"headlamp", "headlamp"}}
+	}
 	routes := []namedPlatformResource{
 		{"dex", "dex"},
 		{"headlamp", "headlamp"},
@@ -382,7 +96,7 @@ func gatewayRoutesForProfile(profile config.ProfileSpec) []namedPlatformResource
 
 func upPhases() []string {
 	phaseOne := "Create vind cluster"
-	if currentConfig != nil && currentConfig.Provider() == config.ProviderExisting {
+	if currentConfig != nil && targetCluster.ProviderOrDefault() == config.ProviderExisting {
 		phaseOne = "Connect to existing cluster"
 	}
 	phaseTwo := "Install Gateway API CRDs"

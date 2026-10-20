@@ -65,8 +65,8 @@ func TestFluxKustomizationsManifestLargeUsesLargeHelmReleases(t *testing.T) {
 
 func TestFluxKustomizationsManifestOCIMirrorsGitPaths(t *testing.T) {
 	for _, profile := range []string{config.ProfileSmall, config.ProfileMedium, config.ProfileLarge} {
-		gitManifest := string(fluxKustomizationsManifestForSource(".", profile, "GitRepository"))
-		ociManifest := string(fluxKustomizationsManifestForSource(".", profile, "OCIRepository"))
+		gitManifest := string(fluxKustomizationsManifestForSource(".", profile, "GitRepository", false))
+		ociManifest := string(fluxKustomizationsManifestForSource(".", profile, "OCIRepository", false))
 		assertYAMLDocuments(t, ociManifest)
 
 		if !strings.Contains(ociManifest, "kind: OCIRepository") {
@@ -180,5 +180,32 @@ func TestFluxPlatformConfigManifestIncludesProfileDefaults(t *testing.T) {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("expected platform config to contain %q\n%s", want, manifest)
 		}
+	}
+}
+
+// TestFluxDecryptsOnlyWhenAnAgeKeyIsConfigured: a topology with no age key
+// must install exactly as before. Enabling decryption unconditionally would
+// make every Kustomization wait for a Secret that does not exist.
+func TestFluxDecryptsOnlyWhenAnAgeKeyIsConfigured(t *testing.T) {
+	plain := string(fluxKustomizationsManifestForSource(".", "small", "GitRepository", false))
+	encrypted := string(fluxKustomizationsManifestForSource(".", "small", "GitRepository", false, withSopsDecryption()))
+
+	if strings.Contains(plain, "decryption:") {
+		t.Fatal("decryption must be off when no identity is configured")
+	}
+
+	documents := strings.Split(encrypted, "\n---\n")
+	checked := 0
+	for _, document := range documents {
+		if !strings.Contains(document, "kind: Kustomization") {
+			continue
+		}
+		checked++
+		if !strings.Contains(document, "  decryption:\n    provider: sops\n    secretRef:\n      name: sops-age") {
+			t.Errorf("a Kustomization has no decryption block:\n%s", document)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("the manifest contained no Kustomizations")
 	}
 }

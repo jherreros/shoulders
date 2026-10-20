@@ -29,6 +29,31 @@ type PublicDomainConfig struct {
 	AlertmanagerHost string
 	HubbleHost       string
 	TLS              DexTLSMaterial
+
+	// HeadlampCallbackURL is the OIDC redirect URI this cluster's Headlamp
+	// uses. It is carried whole rather than assembled from a host and a port
+	// because the two differ: the hub's gateway is published on the default
+	// port, a spoke's on its own.
+	HeadlampCallbackURL string
+
+	// HeadlampClientID and HeadlampClientSecret are the Dex client this
+	// cluster's Headlamp authenticates with.
+	HeadlampClientID     string
+	HeadlampClientSecret string
+
+	// ClusterName is the cluster's name in the topology. It becomes the
+	// `cluster` external label on every series the cluster reports, which is
+	// what makes a hub's and a spoke's metrics distinguishable after they land
+	// in the same Prometheus.
+	ClusterName string
+
+	// WorkloadDomain is the domain user workloads are served under in this
+	// cluster. It is a base name, not a scheme: a WebApplication sets its own
+	// host, and this is what it qualifies it with — team-a.<workload domain>.
+	//
+	// On a spoke it is <cluster>.<hub domain>, so two spokes cannot claim the
+	// same workload host. On the hub it is the hub's own domain.
+	WorkloadDomain string
 }
 
 func DefaultDexTLSMaterial() (DexTLSMaterial, error) {

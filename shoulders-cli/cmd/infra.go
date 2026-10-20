@@ -120,7 +120,7 @@ var infraAddStreamCmd = &cobra.Command{
 	Short: "Create an EventStream",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if !infraDryRun && !currentConfig.ProfileSpec().EventStreams {
+		if !infraDryRun && !targetCluster.ProfileSpec().EventStreams {
 			return fmt.Errorf("event streams require platform.profile: medium or large")
 		}
 
@@ -283,7 +283,7 @@ var infraListCmd = &cobra.Command{
 		}
 
 		listES := &unstructured.UnstructuredList{}
-		if currentConfig.ProfileSpec().EventStreams {
+		if targetCluster.ProfileSpec().EventStreams {
 			gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
 			listES, err = dynamicClient.Resource(gvrES).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
 			if err != nil {
@@ -343,7 +343,7 @@ var infraDeleteCmd = &cobra.Command{
 			errs = append(errs, err)
 		}
 
-		if currentConfig.ProfileSpec().EventStreams {
+		if targetCluster.ProfileSpec().EventStreams {
 			gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
 			err = dynamicClient.Resource(gvrES).Namespace(namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
 			if err == nil {

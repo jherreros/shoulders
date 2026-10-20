@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - webapp.yaml
+  - workload.yaml
+  - state-store.yaml
+# Encrypted secrets go here as *.sops.yaml, after 'shoulders secrets init' and
+# 'sops -e'. They are not listed by default: an encrypted file is tied to the
+# key that encrypted it, and a Kustomization referencing one that cannot be
+# decrypted never becomes Ready. See docs/secrets.md.
+# event-stream.yaml is deliberately not listed: the small profile removes the
+# EventStream XRD, so the example would fail to apply on the laptop topology.
+# Profiles that keep the Kafka composition can add it back.

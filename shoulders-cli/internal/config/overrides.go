@@ -54,7 +54,7 @@ func ApplyOverrides(cfg *Config, entries []string) error {
 			if err != nil {
 				return err
 			}
-			cfg.Platform.Flux.OCIRepository.Insecure = insecure
+			cfg.Platform.Flux.OCIRepository.Insecure = &insecure
 		case "platform.flux.pathPrefix":
 			cfg.Platform.Flux.PathPrefix = value
 		default:

@@ -15,7 +15,7 @@ var dashboardCmd = &cobra.Command{
 	Short: "Open Grafana dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		grafanaOIDCURL := currentConfig.GrafanaURL()
-		grafanaHost := currentConfig.GrafanaHost()
+		grafanaHost := targetCluster.GrafanaHost()
 
 		if isHostPortReachable(grafanaHost, "80", 1500*time.Millisecond) {
 			cmd.Printf("Opening Grafana via Gateway OIDC at %s\n", grafanaOIDCURL)

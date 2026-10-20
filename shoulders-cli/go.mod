@@ -3,6 +3,7 @@ module github.com/jherreros/shoulders/shoulders-cli
 go 1.26.3
 
 require (
+	filippo.io/age v1.3.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/loft-sh/log v0.0.0-20260812120051-874a69680b18
@@ -18,6 +19,8 @@ require (
 	k8s.io/apimachinery v0.36.2
 	k8s.io/client-go v0.36.2
 	oras.land/oras-go/v2 v2.6.2
+	sigs.k8s.io/kustomize/api v0.21.1
+	sigs.k8s.io/kustomize/kyaml v0.21.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -27,6 +30,7 @@ require (
 	atomicgo.dev/schedule v0.1.0 // indirect
 	cel.dev/expr v0.25.2 // indirect
 	dario.cat/mergo v1.0.1 // indirect
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.7 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
@@ -298,8 +302,6 @@ require (
 	sigs.k8s.io/controller-runtime v0.24.1 // indirect
 	sigs.k8s.io/gateway-api v1.5.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
-	sigs.k8s.io/kustomize/api v0.21.1 // indirect
-	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )

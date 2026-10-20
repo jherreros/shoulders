@@ -241,3 +241,34 @@ func keys(names map[string]bool) []string {
 	}
 	return out
 }
+
+// TestBuildSnapshotIncludesUserSpace guards the artifact half of the user-space
+// delivery path.
+//
+// The snapshot used to package 2-addons alone, so a Kustomization pointing at
+// ./3-user-space reconciled forever with
+//
+//	kustomization path not found: stat /tmp/kustomization-.../3-user-space/...
+//
+// and nothing in the build reported an error. The tenant manifests were in git
+// and simply never in the artifact.
+func TestBuildSnapshotIncludesUserSpace(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root+"/2-addons/flux/kustomization.yaml", "resources: []\n")
+	writeFile(t, root+"/3-user-space/team-a/webapp.yaml", "kind: WebApplication\n")
+	writeFile(t, root+"/3-user-space/workspaces/workspace.yaml", "kind: Workspace\n")
+
+	snapshot, err := BuildSnapshot(root, time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("build snapshot failed: %v", err)
+	}
+	names := tarNames(t, snapshot.Payload)
+	for _, want := range []string{
+		"3-user-space/team-a/webapp.yaml",
+		"3-user-space/workspaces/workspace.yaml",
+	} {
+		if !names[want] {
+			t.Fatalf("expected the snapshot to contain %q, got %v", want, keys(names))
+		}
+	}
+}

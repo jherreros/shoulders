@@ -1,0 +1,23 @@
+# The small profile omits the hubble UI and the Cilium dashboards.
+#
+# These live in git rather than in the CLI because flux merges the base
+# manifest's inline values over the values the CLI publishes, so a value the
+# CLI computed would be silently overridden. See R5 in
+# docs/multi-cluster-target.md.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  values:
+    dashboards:
+      enabled: false
+    hubble:
+      relay:
+        enabled: false
+      ui:
+        enabled: false
+      metrics:
+        dashboards:
+          enabled: false
