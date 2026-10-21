@@ -512,7 +512,7 @@ Implemented and verified end-to-end through the product code path.
 | 6 | CoreDNS mesh entries in the existing `hosts` block | **Implemented.** `patchCorefileHosts` in `internal/bootstrap/dns.go`. |
 | 7 | CoreDNS restart label | **Fixed.** `CoreDNSPodSelector` matches both conventions; restart now fails loudly instead of silently no-opping. |
 | — | LoadBalancer disabled in mesh mode | **Added.** Avoids vCluster's macOS `ifconfig` loopback-alias path, which needs `ifconfig` and sudo. |
-| 3, 4, 5 | `cilium-ca` pre-seeding, `cluster.name`/`id`, mesh Cilium values | **Not implemented.** These need the cluster-orchestration layer (target decisions D1/D2), which does not exist yet. |
+| 3, 4, 5 | `cilium-ca` pre-seeding, `cluster.name`/`id`, mesh Cilium values | **Implemented later** by the cluster-orchestration layer (D1/D2) in `cmd/upcluster.go` and `bootstrap.ClusterMeshOptions`; verified in §12.7. The hand-rolled experiment did not need them yet. |
 
 Both clusters are now created **by `manifests.VindMeshValues`** rather than
 hand-rolled values, and the full mesh was re-verified against them:
@@ -963,8 +963,10 @@ can never legitimately own Cilium's lifecycle. Cilium is bootstrap-layer;
 `2-addons/manifests/helm-releases` is platform-layer. The overlap is a layering
 error, not a duplication that happens to be convenient.
 
-Status: **diagnosed, not yet fixed.** Fixing it touches monocluster behaviour,
-so it is raised as **R8** in the target document rather than changed unilaterally.
+Status at the time: **diagnosed, not yet fixed.** Fixing it touched monocluster
+behaviour, so it was raised as **R8** in the target document rather than changed
+unilaterally. It is resolved by the hand-off in §13; R8 is closed in the target
+document's §10.
 
 ---
 
@@ -1908,12 +1910,13 @@ The final path in `EnsureCilium` is:
 1. detect that the runtime values changed (the existing comparison);
 2. read the current Helm revision **before** writing the values, so a fast Flux
    reconcile cannot make the wait race itself;
-3. force the Cilium HelmRelease with `reconcile.fluxcd.io/requestedAt`;
-4. wait for a newer **deployed** Helm revision;
-5. wait for the policy key in `cilium-config`;
-6. write `enable-wireguard` and `encrypt-node` explicitly, which also repairs
+3. write the runtime values (the existing apply);
+4. force the Cilium HelmRelease with `reconcile.fluxcd.io/requestedAt`;
+5. wait for a newer **deployed** Helm revision;
+6. wait for the policy key in `cilium-config`;
+7. write `enable-wireguard` and `encrypt-node` explicitly, which also repairs
    keys Helm leaves behind;
-7. roll the Cilium DaemonSet and operator.
+8. roll the Cilium DaemonSet and operator.
 
 Unchanged values are still a no-op: the final pair's second `up` left both
 Cilium DaemonSets at their original creation timestamps and did not bump the

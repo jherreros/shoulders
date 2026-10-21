@@ -10,7 +10,8 @@ and decrypted by Flux in the cluster.
 shoulders secrets init          # once per machine
 shoulders up                    # publishes the key to every cluster
 sops -e -i 3-user-space/team-a/app-config.sops.yaml
-git add 3-user-space/team-a/app-config.sops.yaml .sops.yaml
+git add 3-user-space/team-a/app-config.sops.yaml
+# add .sops.yaml only if the team shares one recipient (see below)
 ```
 
 `secrets init`:
@@ -20,7 +21,9 @@ git add 3-user-space/team-a/app-config.sops.yaml .sops.yaml
    directory — on macOS `~/Library/Application Support/sops/age/keys.txt`), so
    `sops -e`/`sops -d` work with no environment variables;
 2. writes a `.sops.yaml` creation rule in the repository with the **public**
-   recipient, so `sops -e` targets the right key without `--age`.
+   recipient, so `sops -e` targets the right key without `--age`. It is
+   machine-specific when each machine has its own key; leave it untracked in
+   that case (see below).
 
 `shoulders up` reads that identity and creates `flux-system/sops-age` in every
 cluster, then renders a `decryption` block on every Flux Kustomization:

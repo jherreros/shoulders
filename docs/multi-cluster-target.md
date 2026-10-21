@@ -132,7 +132,7 @@ falls out of the machinery you already have.
 **What R2 does *not* solve.** Alloy's `tls { insecure = true }` stays true.
 ClusterMesh provides WireGuard encryption and mutual auth **at the network
 layer** for pod traffic, so the application-level plaintext is no longer
-plaintext on the wire. Node encryption is deliberately off (D11: the initial
+plaintext on the wire. Node encryption is deliberately off (the initial
 opt-out split broke the cold-install mesh and telemetry paths; evidence §20), so
 this applies to pod traffic, not to host traffic. That is acceptable for local
 dev and must be documented as "encrypted by the mesh, not by the application" —
@@ -194,7 +194,7 @@ mesh settings and host ports, and those ports are rendered into the vend values
 ClusterMesh prerequisites (shared Docker network, distinct pod CIDRs, CoreDNS
 entries) and a fix for the CoreDNS restart label. The current state — tier split,
 tenant delivery, per-cluster ingress, SOPS, local-by-default policy and WireGuard
-— is measured in `docs/multi-cluster-evidence.md` §15–§21.
+— is measured in `docs/multi-cluster-evidence.md` §15–§22.
 
 **Also implemented.** D12: a global `--cluster` flag with a resolver that derives
 the kubeconfig, context and profile from the topology. Every command reads the
@@ -701,7 +701,7 @@ remaining items are independent of the topology work.
 
 The topology model (D1/D2), the orchestration, the ClusterMesh prerequisites
 (R1a/R1c), the Cilium hand-off (R8), the tier split (D3) and user-space
-delivery (D17) are implemented and measured — evidence §12–§17.
+delivery (D17) are implemented and measured — evidence §12–§22.
 
 - **Each spoke has its own Headlamp** and its own Dex client, verifying the
   hub's issuer against a CA the CLI now generates once per topology (§16).
@@ -789,7 +789,7 @@ delivery (D17) are implemented and measured — evidence §12–§17.
 | D20 — SOPS + age | **Implemented and measured** (§18). The CLI generates the identity and publishes it as `flux-system/sops-age` before the Kustomizations; flux decrypts a `*.sops.yaml` Secret in the tenant tree, and the value is visible in a running pod. Decryption stays off when no key exists. |
 | D21 — local-by-default network policy | **Implemented and measured** (§19). A namespace-only policy no longer reaches the hub; an explicit `io.cilium.k8s.policy.cluster` pin selects exactly one cluster. No shipped policy needs the wide scope. |
 | WireGuard encryption | **Enabled and measured** (§20). Pod-to-pod traffic is encrypted across the mesh (`Peers: 3`). Node encryption is off on every node: the control-plane opt-out split broke the cold-install mesh/telemetry host paths, and the mesh control plane is mTLS anyway. Applying changed values on a Flux-owned release forces the HelmRelease, waits for a newer deployed revision, repairs keys Helm leaves stale, then rolls the agents. |
-| D10 — laptop ceiling | **Validated by measurement** (§21). Hub + 1 spoke is stable; a third spoke's control plane overwhelmed this host, and the APIs recovered when it was removed. The code supports three; the laptop does not. |
+| D10 — laptop ceiling | **Validated by measurement** (§21). Hub + 1 spoke is stable; a third spoke's control plane overwhelmed this host, and the APIs recovered when it was removed. The code supports three; the laptop does not. Cold `down` 18s, cold `up` 12m28s, idempotent `up` 3m05s (§22). |
 
 ### Cluster resolution now has one answer
 
