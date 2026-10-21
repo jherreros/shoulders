@@ -152,12 +152,12 @@ func TestTopologyTiersAreInstalled(t *testing.T) {
 	// telemetry agent must not be duplicated there.
 	selectCluster(clusters[0])
 	hubReleases := helmReleaseNames(t, clusters[0].Name)
-	for _, want := range []string{"dex", "headlamp", "kube-prometheus-stack", "kyverno"} {
+	for _, want := range []string{"dex", "headlamp", "victoria-metrics-k8s-stack", "prometheus-operator-crds", "kyverno"} {
 		if !hubReleases[want] {
 			t.Errorf("the hub is missing the platform-tier release %q; it has %v", want, hubReleases)
 		}
 	}
-	for _, unwanted := range []string{"alloy-agent", "kube-state-metrics"} {
+	for _, unwanted := range []string{"alloy-agent", "kube-state-metrics", "node-exporter"} {
 		if hubReleases[unwanted] {
 			t.Errorf("the hub installed the workload-tier release %q; the split is symmetric", unwanted)
 		}
@@ -166,14 +166,14 @@ func TestTopologyTiersAreInstalled(t *testing.T) {
 	// The spoke must not have the backends ...
 	selectCluster(clusters[1])
 	spokeReleases := helmReleaseNames(t, clusters[1].Name)
-	for _, unwanted := range []string{"dex", "kube-prometheus-stack", "loki", "tempo", "alloy"} {
+	for _, unwanted := range []string{"dex", "victoria-metrics-k8s-stack", "prometheus-operator-crds", "loki", "tempo", "alloy"} {
 		if spokeReleases[unwanted] {
 			t.Errorf("the spoke installed the platform-tier release %q", unwanted)
 		}
 	}
 	// ... but policy, its own Headlamp and its own telemetry path are per
 	// cluster, so they must be there.
-	for _, want := range []string{"cnpg", "crossplane", "garage", "kyverno", "headlamp", "kube-state-metrics", "alloy-agent"} {
+	for _, want := range []string{"cnpg", "crossplane", "garage", "kyverno", "headlamp", "kube-state-metrics", "alloy-agent", "node-exporter"} {
 		if !spokeReleases[want] {
 			t.Errorf("the spoke is missing the workload-tier release %q; it has %v", want, spokeReleases)
 		}

@@ -68,7 +68,12 @@ func platformDeploymentsForTier(profile config.ProfileSpec, tier config.ClusterT
 	deployments := []namedPlatformResource{
 		{"dex", "dex"},
 		{"headlamp", "headlamp"},
-		{"observability", "kube-prometheus-stack-grafana"},
+		{"observability", "victoria-metrics-k8s-stack-grafana"},
+		// The operator-created VMSingle deployment is the metrics backend. If
+		// it cannot start (for example, an invalid VMSingle flag), the rest of
+		// the platform can look healthy while the public metrics endpoint is
+		// dead; wait for it explicitly.
+		{"observability", "vmsingle-victoria-metrics-k8s-stack"},
 	}
 	if profile.PolicyReporter {
 		deployments = append(deployments, namedPlatformResource{"policy-reporter", "policy-reporter-ui"})

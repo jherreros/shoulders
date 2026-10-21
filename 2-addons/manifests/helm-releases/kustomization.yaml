@@ -16,10 +16,12 @@ resources:
   - headlamp.yaml
   - loki.yaml
   - tempo.yaml
-  - kube-prometheus-stack.yaml
+  - victoria-metrics-k8s-stack.yaml
+  - prometheus-operator-crds.yaml
   - alloy.yaml
   - alloy-agent.yaml
   - kube-state-metrics.yaml
+  - node-exporter.yaml
   - trivy-operator.yaml
   - trivy-operator-polr-adapter.yaml
   - falco.yaml

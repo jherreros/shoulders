@@ -19,7 +19,7 @@ Shoulders allows developers to declaratively provision and manage:
 - **Workloads** — Background workers, one-shot Jobs, and CronJobs for non-HTTP work.
 - **State Stores** — PostgreSQL databases (via CloudNativePG), Redis caches, and Garage S3 buckets with independent toggles.
 - **Event Streams** — Full Kafka clusters and multiple topics (via Strimzi).
-- **Observability** — Built-in LGTM stack (Loki, Grafana, Tempo, Prometheus) for comprehensive monitoring.
+- **Observability** — Built-in LGTM stack (Loki, Grafana, Tempo, VictoriaMetrics) for comprehensive monitoring.
 
 All resources are defined as Crossplane Composite Resources and managed through Flux GitOps, a CLI, a developer portal, or an MCP server.
 
@@ -33,7 +33,7 @@ Creates a Kubernetes cluster using **vind** (vCluster in Docker) for local devel
 ### 2. Addons Layer (`2-addons/`)
 Installs platform components using **FluxCD** for GitOps-based deployment. Flux Kustomizations enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway → dex → headlamp.
 
-- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco, Policy Reporter).
+- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, VictoriaMetrics stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco, Policy Reporter).
 - **Crossplane Abstractions** — XRDs, Compositions, and Functions that define the developer-facing API.
 - **Gateway** — Gateway API CRDs and a Cilium-backed `Gateway` resource for HTTP routing.
 - **Headlamp** — Developer portal with the Shoulders plugin loaded via `pluginsManager`.
@@ -200,7 +200,7 @@ clusters:
 Notes:
 - `provider: vind` preserves the current default behavior.
 - `provider: existing` skips cluster creation and targets the configured kube context.
-- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` stays), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/VictoriaMetrics, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` stays), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer VictoriaMetrics retention.
 - Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
@@ -590,12 +590,12 @@ This provisions:
 Shoulders comes with a pre-configured observability stack:
 
 - **[Grafana](https://grafana.com/oss/grafana/)** — Visualization and dashboards.
-- **[Prometheus](https://prometheus.io)** (via kube-prometheus-stack) — Metrics collection and alerting.
+- **[VictoriaMetrics](https://victoriametrics.com)** (via victoria-metrics-k8s-stack) — Metrics collection, storage, and alerting. The hub runs a single-node VMSingle; `prometheus.<domain>` remains the public, Prometheus-compatible endpoint, with vmagent scraping and vmalert evaluating rules.
 - **[Loki](https://grafana.com/oss/loki/)** — Log aggregation.
 - **[Tempo](https://grafana.com/oss/tempo/)** — Distributed tracing.
 - **[Grafana Alloy](https://grafana.com/oss/alloy/)** — Unified collector for logs, metrics, and traces.
 
-Use `platform.profile: small` for a low-footprint install: Prometheus retention is capped, the log/trace pipeline is omitted, and scanner/reporting add-ons are not installed. `medium` and `large` include the complete observability and reporting stack.
+Use `platform.profile: small` for a low-footprint install: VMSingle uses 24h retention on a 2Gi PVC with a 1.5GiB free-space floor (roughly a 512MiB data budget), the log/trace pipeline is omitted, and scanner/reporting add-ons are not installed. `medium` and `large` include the complete observability and reporting stack. VictoriaMetrics does not support retention below 24h, so `small` no longer uses the old 6h setting.
 
 ## Security & Compliance
 
@@ -605,7 +605,7 @@ Shoulders ships with a security and compliance stack that integrates with both P
 - **[Kyverno Policies](https://kyverno.io/policies/)** — Community best-practice policies (baseline pod security).
 - **[Trivy Operator](https://aquasecurity.github.io/trivy-operator/)** — Continuous vulnerability and misconfiguration scanning. Produces VulnerabilityReports integrated into Policy Reporter via its Trivy plugin.
 - **[Falco](https://falco.org)** — Runtime threat detection using eBPF. Falcosidekick forwards events as PolicyReport CRDs for Policy Reporter aggregation.
-- **[Policy Reporter](https://kyverno.github.io/policy-reporter/)** — Unified dashboard aggregating policy results from Kyverno, Trivy, and Falco. Includes Prometheus metrics and Grafana dashboards.
+- **[Policy Reporter](https://kyverno.github.io/policy-reporter/)** — Unified dashboard aggregating policy results from Kyverno, Trivy, and Falco. Includes Prometheus-compatible metrics and Grafana dashboards.
 
 Access the Policy Reporter UI:
 
@@ -643,7 +643,7 @@ shoulders up
 If needed, the Grafana admin password can also be retrieved manually:
 
 ```bash
-kubectl get secret -n observability kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+kubectl get secret -n observability victoria-metrics-k8s-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
 ## Developer Portal (Headlamp Plugin)

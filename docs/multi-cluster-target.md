@@ -28,12 +28,12 @@ infrastructure (e.g. Talos on Hetzner). That fight is explicitly deferred.
 | D10 | **Laptop target is hub + 1 spoke.** | See §4. |
 | D11 | **Cilium ClusterMesh is the inter-cluster network.** It provides the encrypted, authenticated transport and the identity primitives; **R1's cross-cluster policy use case turned out not to exist (D21).** | See §3 for what it gives and §8 for what it costs. Proven working on vind at 0% packet loss with WireGuard; the six CLI prerequisites (R1c) are implemented and verified. |
 | D12 | **CLI targets clusters explicitly.** A `--cluster` flag backed by a cluster-name resolver replaces the process-global `kube.SetContextOverride`. Ambient current-cluster is kept only as a fallback. | **Implemented.** The resolver derives the context from the topology, so the ~40 existing call sites follow `--cluster` without being rewritten. |
-| D13 | **Observability data flow is strictly spoke→hub.** Alloy agents in spokes push to hub backends; the hub never scrapes into a spoke for telemetry. | One-directional means the hub needs **zero** spoke credentials for telemetry. |
+| D13 | **Observability data flow is strictly spoke→hub.** Alloy agents in spokes push to hub backends; the hub never scrapes into a spoke for telemetry. Metrics land in the hub's VictoriaMetrics VMSingle. | One-directional means the hub needs **zero** spoke credentials for telemetry. |
 | D14 | **Topology config overlays a shared `platform:` block.** Each `clusters:` entry states only what differs; resolution produces a fully-populated per-cluster value. | Compact, and consumers read a flat resolved value rather than reimplementing overlay rules. Zero value means "inherit"; pointer fields exist where "unset" and "false" must differ. |
 | D16 | **Admission control runs in both tiers.** Kyverno and its policies are installed on the hub *and* on every spoke; what stays central is the policy *source* in git. | A policy engine only sees the pods admitted by its own kube-apiserver, so a hub-only Kyverno enforces nothing on a spoke. It is also a hard dependency: the `Workspace` composition emits a Kyverno `ClusterPolicy`, so a spoke without the CRD never reconciles its first `Workspace`. The hub keeps its engine for its own platform pods. Measured — evidence §17.2. |
 | D17 | **User space is delivered by Flux, on the workload tier.** `3-user-space/` is reconciled by two Kustomizations (`user-space-workspaces`, then `user-space-apps`), and a hub deletes both. | It was the last thing nothing delivered: the compositions existed, the sample tenant existed, and no Kustomization pointed at either. Two, not one, because a `Workspace` owns its namespace, so the tenant's namespaced XRs cannot apply until it is ready. A monocluster is a hub, so this keeps its behaviour unchanged. |
 | D18 | **A workload's host is `<app>.<cluster>.<hub domain>`.** The hub owns the only domain; a spoke qualifies it with its own name via `SHOULDERS_WORKLOAD_DOMAIN`. | Two spokes cannot claim the same hostname, and no cluster needs a second DNS zone. The variable is set per cluster by the CLI, so the tenant manifest has no cluster name in it. |
-| D19 | **Spoke telemetry is push-only, and metrics-only where the profile has no logs.** A spoke runs its own `kube-state-metrics` and an `alloy-agent` that remote-writes to the hub's Prometheus with `cluster=<name>`. The hub's own series are **unlabelled**: `externalLabels` do not apply to locally stored samples, so the convention is **empty `cluster` = hub**, and the label is kept for federation and alerting. | Kube-state-metrics is what answers "is this workload running on that spoke" without a scrape path into the spoke, and it needs no CRDs. The remote-write label is what makes one query span the topology. The agent and the collector are the symmetric half of D16: the hub removes them. Measured — evidence §17.6. |
+| D19 | **Spoke telemetry is push-only, and metrics-only where the profile has no logs.** A spoke runs its own `kube-state-metrics`, `node-exporter`, and an `alloy-agent` that scrapes its own apiserver, kubelet (`/metrics`, `/metrics/cadvisor`, `/metrics/probes`), CoreDNS, node-exporter, and kube-state-metrics, then remote-writes to the hub's VictoriaMetrics with `cluster=<name>`. The hub's own series are **unlabelled**: `externalLabels` do not apply to locally stored samples, so the convention is **empty `cluster` = hub**, and the label is kept for federation and alerting. | The set is the standard per-cluster baseline, not just object state: without kubelet and node metrics the hub would see a spoke's pods but not what they consume. Kube-state-metrics needs no CRDs; node-exporter is a DaemonSet; the agent is the only push path. The remote-write label is what makes one query span the topology. The agent and the collectors are the symmetric half of D16: the hub removes them. Measured — evidence §23. |
 | D15 | **Roles are labels, never behaviour.** Host ports, mesh enablement and profile are explicit config. Nothing branches on a role. | The direct test of D1, and the answer to the original concern about complexity: `TestRolesAreLabelsOnly` fails if a role ever starts implying behaviour. |
 | D20 | **Secrets are SOPS + age, distributed by the CLI.** `shoulders secrets init` generates the identity (in the sops CLI's own key file, outside the repo); `up` publishes it as `flux-system/sops-age` on every cluster and renders `decryption.provider: sops` on every Kustomization. Decryption is enabled only when a key exists. | Moves no secret over the network and adds no service: the file rides the artifact flux already pulls and the key lives in the cluster flux already runs. A secret store would be a second distributed system to bootstrap and reach across clusters, which is the problem the mesh work spends its effort avoiding. Measured — evidence §18. |
 | D21 | **Network policy is cluster-local by default.** `clustermesh.policyDefaultLocalCluster: true`; a rule that must reach another cluster names it with `k8s:io.cilium.k8s.policy.cluster`. | No shipped composition needs cross-cluster scope: every stateful dependency (CNPG, Garage) is installed in every cluster, so the workspace's egress is local. The wide default let a bare namespace selector admit hub traffic without saying so. A real cross-cluster rule still works when it names the cluster, but it can no longer happen by accident. Measured — evidence §19. |
@@ -45,7 +45,7 @@ infrastructure (e.g. Talos on Hetzner). That fight is explicitly deferred.
 ### Hub (platform tier)
 
 - **IAM** — Dex, the single OIDC issuer for the topology
-- **Observability** — Prometheus, Grafana, Loki, Tempo, Alertmanager; Alloy agents run *in the spokes* and push here
+- **Observability** — VictoriaMetrics (VMSingle, vmagent, vmalert, Alertmanager), Grafana, Loki, Tempo; Alloy agents run *in the spokes* and push metrics here
 - **Policy** — Kyverno
 - **GitOps** — Flux, one install per cluster (D6)
 - **Control-plane surface** — CLI, MCP server, Headlamp entry point
@@ -55,7 +55,7 @@ infrastructure (e.g. Talos on Hetzner). That fight is explicitly deferred.
 - `WebApplication`, `Workload`, `Workspace`, `StateStore`, `EventStream` —
   today's compositions, unmodified
 - Cilium CNI + ClusterMesh agent, Flux, Crossplane, CNPG, Garage
-- Alloy agents shipping logs and traces to the hub
+- Metrics-only Alloy agent, `kube-state-metrics`, and `node-exporter` pushing the spoke's object, node, kubelet, apiserver, and CoreDNS metrics to the hub
 - Local Cilium `Gateway` + `HTTPRoute` (D7)
 - A Headlamp instance (each needs its own OIDC client registered in hub Dex)
 
@@ -142,19 +142,24 @@ it is not the same as app-level mTLS.
 
 ## 4. Laptop feasibility
 
-`small` today = 37 pods (measured healthy) and already contains Dex, Grafana,
-Prometheus and Headlamp. Note this cuts the other way from what was first
+`small` after the metrics migration = **41 pods** on the hub in steady state
+(40 running plus the completed Garage layout job), measured on the final cold
+run, and already contains Dex, Grafana, VictoriaMetrics, Headlamp, and the
+per-cluster telemetry. Note this cuts the other way from what was first
 assumed: a hub owning **real** observability converges near `medium`, which per
 `CONTRIBUTING.md` is where this hardware starts to fail. Deferring D4 keeps the
-hub's *component set* exactly at `small`, but the hub is still a full-weight
-platform cluster.
+hub's *component set* at `small`, but the hub is still a full-weight platform
+cluster.
 
-- **`hub-small`** = today's `small`, **unchanged** — 37 pods, the measured figure.
+- **`hub-small`** = today's `small` — **41 pods** in steady state (40 running),
+  measured after VMKS.
   Because D4 is deferred the hub needs neither Strimzi nor the `EventStream`
   XRD/composition.
-- **`spoke`** ≈ Cilium + ClusterMesh + Flux + Crossplane + CNPG + Garage.
-  ≈15–20 pods.
-- Total for hub + 1 spoke ≈ **52–57 pods across two control planes**.
+- **`spoke`** ≈ Cilium + ClusterMesh + Flux + Crossplane + CNPG + Garage +
+  kube-state-metrics + node-exporter + alloy-agent. **42 pods with the sample
+  tenant; about 35 without it**, measured.
+- Total for hub + 1 spoke with the sample tenant = **83 pods across two
+  control planes**, measured.
 
 **Measured on this host (2026-10-21).** Two clusters are the ceiling. Adding a
 third spoke joined the mesh and started its platform reconcile, then all three
@@ -194,7 +199,7 @@ mesh settings and host ports, and those ports are rendered into the vend values
 ClusterMesh prerequisites (shared Docker network, distinct pod CIDRs, CoreDNS
 entries) and a fix for the CoreDNS restart label. The current state — tier split,
 tenant delivery, per-cluster ingress, SOPS, local-by-default policy and WireGuard
-— is measured in `docs/multi-cluster-evidence.md` §15–§22.
+— is measured in `docs/multi-cluster-evidence.md` §15–§23.
 
 **Also implemented.** D12: a global `--cluster` flag with a resolver that derives
 the kubeconfig, context and profile from the topology. Every command reads the
@@ -503,20 +508,26 @@ see §6. Stated limitation of the reference implementation, not a defect to fix
 here. It becomes substantive only when a cross-cluster abstraction is actually
 needed.
 
-### R7 — Hub observability blind to spoke control planes *(low, D13)*
+### R7 — Hub observability blind to spoke control planes — **RESOLVED (D19)**
 
 D13 keeps telemetry strictly spoke→hub, which is a genuine win (zero spoke
-credentials in the hub) but means **the hub only sees what spokes push**. Spoke
-control-plane metrics (apiserver, etcd, kube-state-metrics) must therefore be
-pushed too, or you get application telemetry without cluster telemetry — an odd
-dashboard. Needs an explicit decision on whether each spoke runs a
-scraping-and-pushing agent, or whether hub-scraping is added back as a deliberate
-hub→spoke exception.
+credentials in the hub) but means **the hub only sees what spokes push**. The
+answer is the spoke's standard telemetry set: `kube-state-metrics` for object
+state, `node-exporter` for node resources, and an Alloy agent that scrapes the
+spoke's apiserver, kubelet (including cAdvisor and probes), and CoreDNS, then
+remote-writes everything to the hub. The hub still never reaches into a spoke.
 
-**Note: the TSDB choice is a separate decision and does not fix R7.** Whatever
-backend is chosen, the fix is the same: the spoke agent must scrape control-plane
-objects and push them. Choosing Mimir or VictoriaMetrics changes nothing about
-coverage. Keep them apart — see §8a.
+**Measured** (evidence §23): every job is present on the hub with
+`cluster="spokea"`, including `apiserver`, `kubelet`, `coredns`,
+`node-exporter`, and `kube-state-metrics`; the tenant's pods and node/container
+CPU series are queryable in the same store as the hub's own. etcd,
+controller-manager, scheduler, and kube-proxy metrics are absent because vind
+does not expose those endpoints — a platform limitation, not an unpushed job.
+
+**The TSDB choice is separate.** VictoriaMetrics is the chosen backend (§8a),
+but the coverage fix would be the same on Prometheus, Mimir, or anything else.
+The multi-instance `vmselect` dedup claim remains unverified and is not used by
+this implementation; the hub runs one `VMSingle`.
 
 ---
 
@@ -635,60 +646,65 @@ creates and adopts the Cilium HelmRelease, `kubeProxyReplacement`,
 agree on the version (no surprise upgrade), and there are zero `UpgradeFailed`
 events. See evidence §13 and §14.
 
-## 8a. Metrics backend: Prometheus vs Mimir vs VictoriaMetrics
+## 8a. Metrics backend: VictoriaMetrics — **chosen and implemented**
 
-**This is orthogonal to the multi-cluster work** and gates nothing in it. It can be
-decided and implemented today, monocluster, without waiting for the topology. It
-is recorded here because R7 made it topical.
+The metrics backend is no longer an open question. The hub runs the
+`victoria-metrics-k8s-stack` chart (`0.96.0`, app `v1.154.0`) instead of
+`kube-prometheus-stack`. The public endpoint remains `prometheus.<domain>`;
+only the backend behind it changed. The migration is measured in evidence §23.
 
-**What changes with D13.** Today the hub scrapes its own cluster. Under D13 the hub
-becomes a *pure ingestion and aggregation layer* — it no longer needs to scrape.
-That is a meaningfully different shape of requirement, and it is the thing that
-should drive the choice.
+**What runs.** A single-node `VMSingle` owns storage; the chart's `vmagent`
+scrapes the hub's own targets; `vmalert` evaluates the default rules; the
+chart's Alertmanager receives alerts; Grafana is the same Grafana with a
+VictoriaMetrics datasource. The chart's `prometheus-node-exporter` and
+`kube-state-metrics` subcharts replace the old ones. A separate
+`prometheus-operator-crds` HelmRelease keeps the `monitoring.coreos.com` CRDs,
+and the VictoriaMetrics operator's Prometheus converter (left enabled) turns
+CNPG's `PodMonitor` and any future `ServiceMonitor`/`PrometheusRule` into VM
+scrape and rule objects. Keeping the CRDs is not optional: CNPG's chart creates
+a `PodMonitor`, and without the CRD the hub's CNPG release would fail.
 
-**What Shoulders actually needs.** A laptop, 2–3 clusters, ~50–60 pods. The
-configured retention ceiling today is `large` = 7 days / 5 GiB. This is
-thousands of series, orders of magnitude below the ~1M datapoints/sec where
-distributed backends start to matter. **Scalability is not a criterion here;
-operational simplicity is.**
+**Why this shape.**
 
-| | Prometheus (today) | Grafana Mimir | VictoriaMetrics |
-|---|---|---|---|
-| Shape | Single binary, but not a production-grade remote-write receiver | `mimir-distributed` is multi-component; monolithic mode available | Single binary; cluster mode is `vminsert`+`vmselect`+`vmstorage` |
-| Multi-cluster fit | Needs Thanos on top for aggregation | Built for federated ingest | `vmselect` reads **multiple single-node instances and deduplicates automatically** — a natural cluster-per-topology fit |
-| Long-term storage | None (local volume only) | Object storage (S3) | Local volume; `vmbackup` for snapshots |
-| Grafana compatibility | Native | Native | Native, PromQL-compatible — existing dashboards, ServiceMonitors, recording and alerting rules work unchanged |
-| Hub-down resilience | n/a | n/a | `vmagent` buffers on disk (`-remoteWrite.maxDiskUsagePerURL`) |
+1. **One process, one volume.** The laptop target does not need a distributed
+   TSDB. `VMSingle` is the smallest implementation that still accepts remote
+   write and answers PromQL.
+2. **The spoke contract does not change.** Alloy still writes to
+   `http://prometheus.<domain>/api/v1/write`; VMSingle accepts the same
+   Prometheus remote-write protocol. No spoke TSDB, no second query path.
+3. **PromQL compatibility.** Existing dashboards, recording rules, and
+   alerting rules continue to work; Grafana's datasource UID is
+   `VictoriaMetrics`, and the Tempo traces-to-metrics link points at it.
+4. **The old CRDs are the compatibility surface, not the old server.** The
+   CRD chart is cheap and lets third-party charts keep shipping the objects
+   they already know.
 
-**Recommendation: VictoriaMetrics for the reference implementation, not Mimir.**
+**Retention and storage.** VictoriaMetrics rejects retention below 24h (the
+`retentionPeriod` pattern is `^[0-9]+(h|d|w|y)?$` and 24h is the effective
+minimum). The old `small` profile asked for 6h, which the backend cannot honour,
+so `small` is now 24h. Single-node VMSingle does **not** have
+`-retention.maxDiskSpaceUsageBytes` (that is a `vmstorage` flag); the data budget
+is the PVC size minus `-storage.minFreeDiskSpaceBytes`, at which point ingestion
+stops. The values below are therefore budgets, not hard byte caps.
 
-1. **Single binary.** It matches the project's laptop budget and the
-   reference-implementation goal far better than a multi-component distributed
-   backend. VictoriaMetrics' own docs recommend the single-node version below
-   ~1M dps and advise "think twice before choosing the cluster version."
-2. **The multi-cluster shape fits.** `vmselect` pointing at one single-node VM per
-   cluster, with automatic deduplication, is close to exactly the topology here —
-   and it lets each spoke keep a local TSDB, which keeps queries fast and makes
-   hub outages non-fatal for recent history.
-3. **`vmagent`'s on-disk buffering** directly addresses a problem D13 *creates*:
-   spoke agents must survive hub outages. The project has a documented history of
-   DiskPressure (see `docs/platform-feedback-roadmap.md` §1.2 A3), so
-   bounded buffering matters more here than usual.
-4. **Low CPU and memory**, against a hardware budget already known to be tight.
-5. **Zero migration cost** — PromQL-compatible, so every existing dashboard,
-   ServiceMonitor, recording rule and Alertmanager rule carries over.
+| Profile | Retention | VMSingle PVC | Free-space floor | Approx. data budget |
+|---|---|---|---|---|
+| `small` | 24h | 2Gi | 1536MiB | ~512MiB |
+| `medium` (base) | 24h | 5Gi | 4GiB | ~1GiB |
+| `large` | 7d | 20Gi | 15GiB | ~5GiB |
 
-**When Mimir would be the right answer:** if the Grafana-ecosystem standard
-matters more than operational simplicity, if you need PromQL-level multi-tenancy
-isolation, or if the Talos/Hetzner deployment will be operated by people who
-already know Thanos/Mimir. Note `Garage` is already in the stack and is
-S3-compatible, so the object storage both Mimir and Thanos require is available
-today — that removes the main objection to keeping them as the production path.
+**Not in this implementation.** There is no per-spoke VictoriaMetrics TSDB and
+no `vmselect` multi-instance dedup. The earlier idea of one single-node VM per
+cluster queried by a central `vmselect` is a scale-out option, not what the
+laptop topology runs; the dedup claim remains **unverified**. Mimir is not
+installed. The hub is a single VMSingle, so this is not an HA design.
 
-**Possible follow-on:** VictoriaLogs is a Loki analogue from the same project. If
-Loki centralisation is ever revisited, the same reasoning applies. Not in scope now.
-
----
+**Operational notes.** VMSingle uses the default `local-path` StorageClass.
+The VMKS default-dashboard sync job is a Helm post-install hook and fetches
+dashboard definitions over the network; it is not part of the airgap bundle.
+The chart's `defaultDashboards`/`defaultRules` can be disabled for a strict
+offline install, at the cost of the stock dashboards. This is recorded rather
+than hidden because the rest of the repo has an airgap path.
 
 ## 9. Not decided
 
@@ -700,15 +716,17 @@ remaining items are independent of the topology work.
 ### Done since this section was first written
 
 The topology model (D1/D2), the orchestration, the ClusterMesh prerequisites
-(R1a/R1c), the Cilium hand-off (R8), the tier split (D3) and user-space
-delivery (D17) are implemented and measured — evidence §12–§22.
+(R1a/R1c), the Cilium hand-off (R8), the tier split (D3), user-space delivery
+(D17), and the VictoriaMetrics/spoke-telemetry migration (D19, §8a) are
+implemented and measured — evidence §12–§23.
 
 - **Each spoke has its own Headlamp** and its own Dex client, verifying the
   hub's issuer against a CA the CLI now generates once per topology (§16).
-- **D13 is measured, not assumed.** A spoke's `kube-state-metrics` and
-  `alloy-agent` remote-write to the hub's Prometheus; `count by (cluster)
-  (kube_pod_info)` returns the spoke's series labelled `cluster="spokea"`
-  (§17.6). An empty cluster label means "hub".
+- **D13 is measured, not assumed.** A spoke's `kube-state-metrics`,
+  `node-exporter`, and `alloy-agent` push its object, node, apiserver, kubelet,
+  and CoreDNS metrics to the hub's VMSingle; every job is queryable with
+  `cluster="spokea"` (§23). An empty cluster label means "hub". The earlier
+  kube-state-metrics-only measurement (§17.6) is superseded by the standard set.
 - **A tenant runs on a spoke, and only there**: `Workspace`, `WebApplication`,
   `StateStore` and `Workload` all `READY=True`, reachable through the spoke's
   own gateway, with no `team-a` namespace on the hub (§17.7).
@@ -746,9 +764,12 @@ delivery (D17) are implemented and measured — evidence §12–§22.
   lighter spoke profile; D10 remains hub + 1 spoke.
 - **R5 beyond Cilium** — the profile mechanism itself, and the profiles' role
   in a topology, are untested.
-- **R7** — spoke control-plane metrics, and the §8a metrics backend, are
-  untouched. The VictoriaMetrics multi-instance dedup claim is still
-  **unverified** (evidence §9.1).
+- **R7 beyond vind** — the spoke now pushes apiserver, kubelet, CoreDNS, node,
+  and object metrics. etcd, controller-manager, scheduler, and kube-proxy have
+  no endpoints on vind, so their metrics remain unavailable there; a provider
+  that exposes them would need additional scrape jobs. The VictoriaMetrics
+  multi-instance dedup claim is still **unverified**; this implementation uses
+  one central `VMSingle` (evidence §9.1, §23).
 - **D6 literally** — `pathPrefix: clusters/<name>` is honoured as an
   operator-facing option but is not the default: a default would tie the
   repository to the cluster names the operator picks. The tier difference is
@@ -756,9 +777,9 @@ delivery (D17) are implemented and measured — evidence §12–§22.
 
 ### Independent of the topology work
 
-- Spoke control-plane metrics strategy (R7 — orthogonal to the TSDB choice)
-- Metrics backend: VictoriaMetrics vs Mimir vs staying on Prometheus (§8a). The
-  VictoriaMetrics multi-instance dedup claim is **unverified** (evidence log §9.1).
+- VictoriaMetrics scale-out (`vmselect` over per-cluster single-node instances)
+  and its dedup behaviour; the laptop implementation deliberately uses one
+  central `VMSingle`. The dedup claim is **unverified** (evidence log §9.1).
 - Whether Flux Operator is adopted later for fleet UX (not required by D6)
 - Whether `Workspace` stays cluster-scoped or becomes namespaced under D1
 - What the hub's Crossplane owns once a real cross-cluster abstraction is needed
@@ -780,16 +801,18 @@ delivery (D17) are implemented and measured — evidence §12–§22.
 | R4 — CLI/MCP single-cluster | **Resolved.** CLI via D12; the MCP server now takes `SHOULDERS_CLUSTER` and fails loudly on an unknown cluster instead of falling back to the kubeconfig's current-context. |
 | R5 — profile mechanism | **Cilium's half resolved by moving it into git (§13.3).** The profile's observability (`dashboards.enabled`, `hubble.{relay,ui}`) is now expressed in `2-addons/profiles/<profile>/helm-releases/cilium.yaml`, not computed by the CLI, because flux merges the manifest's inline values over the CLI's. The CLI and the manifest are now asserted to agree on the static values they share. The rest of R5 (profiles as a general mechanism) is still untested. |
 | R6 — thin hub Crossplane | Accepted by decision. |
-| R7 — hub blind to spoke control planes | Not tested. |
+| R7 — hub blind to spoke control planes | **Resolved for the available surfaces** (evidence §23). Each spoke pushes apiserver, kubelet (`/metrics`, `/metrics/cadvisor`, `/metrics/probes`), CoreDNS, node-exporter, and kube-state-metrics; every job is present on the hub with `cluster="spokea"`. etcd, controller-manager, scheduler, and kube-proxy have no endpoints on vind, so they remain a documented platform limitation rather than an unpushed job. |
 | D3 — the platform/workload split | **Implemented and measured** on a real two-cluster topology (§15): the hub runs the platform tier, the spoke the workload tier, the mesh forms, and traffic crosses it both ways with 0% loss. Each cluster has its own Headlamp, and the spoke's authenticates against the hub's Dex over the mesh (§16). |
 | R8 — Flux reconciles Cilium | **Resolved.** The exclusion was deliberate, not a bug: `SuspendCiliumHelmRelease` (a kind→vind migration leftover, c3fc83b) deleted the HelmRelease from Flux's set on every `up`. Removed; Flux now owns the CNI and Renovate's bumps reach it. Proven end to end (§14.5). |
-| D13 — spoke telemetry | **Measured** (§17.6). A spoke's `kube-state-metrics` + `alloy-agent` remote-write to the hub's Prometheus; `count by (cluster) (kube_pod_info)` returns 41 spoke series labelled `cluster="spokea"` (and 8 of them in `namespace="team-a"`). Hub-local series carry no label: **empty cluster = hub**. |
+| D13 — spoke telemetry | **Measured** (§23). A spoke's `kube-state-metrics`, `node-exporter`, and `alloy-agent` remote-write to the hub's VMSingle. Every expected job is queryable with `cluster="spokea"`; `count by (cluster) (kube_pod_info)` returns the spoke's object series, and node/container CPU series are present. Hub-local series carry no label: **empty cluster = hub**. The earlier 41-series kube-state-only measurement (§17.6) is historical. |
 | D16 — admission control on every tier | **Implemented.** Kyverno is a workload-tier resource. The `Workspace` composition emits a Kyverno `ClusterPolicy`, so the first tenant `Workspace` requires the engine on the spoke; the policy reconciles there (§17.2). |
 | D17 — user space per cluster, from one tree | **Implemented and measured** (§17.7). Two Kustomizations on a spoke (`user-space-workspaces`, then `user-space-apps`) and none on a hub. The local OCI artifact now packages `3-user-space/`; before that the Kustomization pointed at a path the artifact did not contain. |
 | D20 — SOPS + age | **Implemented and measured** (§18). The CLI generates the identity and publishes it as `flux-system/sops-age` before the Kustomizations; flux decrypts a `*.sops.yaml` Secret in the tenant tree, and the value is visible in a running pod. Decryption stays off when no key exists. |
 | D21 — local-by-default network policy | **Implemented and measured** (§19). A namespace-only policy no longer reaches the hub; an explicit `io.cilium.k8s.policy.cluster` pin selects exactly one cluster. No shipped policy needs the wide scope. |
+| D19 — standard spoke telemetry | **Implemented and measured** (§23). The spoke runs `kube-state-metrics`, `node-exporter`, and the metrics-only Alloy agent; every standard job is visible on the hub with the cluster label. |
+| VictoriaMetrics hub backend | **Implemented and measured** (§23). `VMSingle` replaces Prometheus behind the unchanged `prometheus.<domain>` remote-write endpoint; the CRD converter preserves CNPG's PodMonitor. |
 | WireGuard encryption | **Enabled and measured** (§20). Pod-to-pod traffic is encrypted across the mesh (`Peers: 3`). Node encryption is off on every node: the control-plane opt-out split broke the cold-install mesh/telemetry host paths, and the mesh control plane is mTLS anyway. Applying changed values on a Flux-owned release forces the HelmRelease, waits for a newer deployed revision, repairs keys Helm leaves stale, then rolls the agents. |
-| D10 — laptop ceiling | **Validated by measurement** (§21). Hub + 1 spoke is stable; a third spoke's control plane overwhelmed this host, and the APIs recovered when it was removed. The code supports three; the laptop does not. `down` 18s, cold `up` 12m28s, idempotent `up` 3m05s (§22). |
+| D10 — laptop ceiling | **Validated by measurement** (§21). Hub + 1 spoke is stable; a third spoke's control plane overwhelmed this host, and the APIs recovered when it was removed. The code supports three; the laptop does not. The current metrics lifecycle is 21.95s down, 12m06s cold, and 3m06s idempotent (§23); §22 is the pre-metrics record. |
 
 ### Cluster resolution now has one answer
 

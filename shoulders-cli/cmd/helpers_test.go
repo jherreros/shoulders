@@ -159,7 +159,7 @@ func TestWorkloadTierWaitsForNothingPlatform(t *testing.T) {
 	// A spoke has no backends, so it must not wait for any. The observability
 	// namespace itself is not platform-only any more: the spoke's own agent and
 	// its kube-state-metrics live there.
-	spokeObservability := map[string]bool{"kube-state-metrics": true, "alloy-agent": true}
+	spokeObservability := map[string]bool{"kube-state-metrics": true, "alloy-agent": true, "node-exporter": true}
 	for _, deployment := range deployments {
 		if deployment.ns == "dex" {
 			t.Fatalf("a workload-tier cluster waits for the platform-tier %v", deployment)

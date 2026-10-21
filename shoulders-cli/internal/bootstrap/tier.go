@@ -44,7 +44,8 @@ import (
 var platformTierResources = map[string][]resourceRef{
 	"helm-releases": {
 		{kind: "HelmRelease", name: "dex", namespace: "dex"},
-		{kind: "HelmRelease", name: "kube-prometheus-stack", namespace: "observability"},
+		{kind: "HelmRelease", name: "victoria-metrics-k8s-stack", namespace: "observability"},
+		{kind: "HelmRelease", name: "prometheus-operator-crds", namespace: "observability"},
 		{kind: "HelmRelease", name: "loki", namespace: "observability"},
 		{kind: "HelmRelease", name: "tempo", namespace: "observability"},
 		{kind: "HelmRelease", name: "alloy", namespace: "observability"},
@@ -100,20 +101,21 @@ var platformTierKustomizations = []string{
 // workloadTierReleaseDependencies are the HelmReleases the workload tier runs
 // that wait on a platform-tier HelmRelease.
 //
-// The dependency is an ordering nicety: the platform tier's prometheus stack
-// brings the monitoring.coreos.com CRDs, and a release that creates a
-// ServiceMonitor should wait for them. On a spoke that stack does not exist, so
-// the dependency can never be satisfied and the release never installs at all:
+// The dependency is an ordering nicety: the platform tier's
+// prometheus-operator CRDs are needed by charts that create a ServiceMonitor,
+// and a release that creates one should wait for them. On a spoke those CRDs
+// do not exist, so the dependency can never be satisfied and the release never
+// installs at all:
 //
 //	HelmRelease/cnpg: Fulfilling prerequisites
-//	unable to get 'observability/kube-prometheus-stack' dependency:
-//	  helmreleases.helm.toolkit.fluxcd.io "kube-prometheus-stack" not found
+//	unable to get 'observability/prometheus-operator-crds' dependency:
+//	  helmreleases.helm.toolkit.fluxcd.io "prometheus-operator-crds" not found
 //
 // The dependency is therefore dropped, and the whole dependsOn list goes with
 // it — which is correct only because each of these releases waits on nothing
 // else. The test below says so.
 var workloadTierReleaseDependencies = []releaseDependency{
-	{kind: "HelmRelease", name: "cnpg", namespace: "cnpg-system", waitsOn: "kube-prometheus-stack"},
+	{kind: "HelmRelease", name: "cnpg", namespace: "cnpg-system", waitsOn: "prometheus-operator-crds"},
 	// Headlamp waits on dex for the issuer it authenticates against. On a spoke
 	// the issuer is the *hub's* dex, over the mesh, so waiting for a local dex
 	// is not merely unnecessary — it can never be satisfied, and the Headlamp
@@ -122,20 +124,20 @@ var workloadTierReleaseDependencies = []releaseDependency{
 	//   HelmRelease/headlamp: Fulfilling prerequisites
 	//   unable to get 'dex/dex' dependency
 	{kind: "HelmRelease", name: "headlamp", namespace: "headlamp", waitsOn: "dex"},
-	// Kyverno now runs in both tiers, and it waits on the prometheus stack for
+	// Kyverno now runs in both tiers, and it waits on the prometheus CRDs for
 	// the same reason CNPG does: its ServiceMonitors need the CRDs. The spoke
-	// has no prometheus stack, and the ServiceMonitors are turned off below.
-	{kind: "HelmRelease", name: "kyverno", namespace: "kyverno", waitsOn: "kube-prometheus-stack"},
+	// has no metrics backend, and the ServiceMonitors are turned off below.
+	{kind: "HelmRelease", name: "kyverno", namespace: "kyverno", waitsOn: "prometheus-operator-crds"},
 }
 
 // workloadTierValueOverrides are the HelmRelease values the workload tier
 // needs to be different.
 //
 // CNPG's chart creates a PodMonitor by default, and the PodMonitor is a scrape
-// configuration: it tells a Prometheus what to collect. A spoke has no
-// Prometheus — the observability backends are in the hub — so the object has
-// nothing to be scraped by, and creating it fails outright because the
-// monitoring.coreos.com CRDs are not installed on a spoke:
+// configuration: it tells the hub's metrics collector what to collect. A spoke
+// has no metrics backend — the observability backends are in the hub — so the
+// object has nothing to be scraped by, and creating it fails outright because
+// the monitoring.coreos.com CRDs are not installed on a spoke:
 //
 //	no matches for kind "PodMonitor" in version "monitoring.coreos.com/v1"
 //	ensure CRDs are installed first
@@ -156,7 +158,7 @@ var workloadTierValueOverrides = []releaseValueOverride{
 	},
 	{
 		// Kyverno's chart creates a ServiceMonitor per controller, plus a
-		// Grafana dashboard. A spoke has neither Prometheus nor Grafana, so the
+		// Grafana dashboard. A spoke has neither a metrics backend nor Grafana, so the
 		// ServiceMonitors cannot be created at all (no monitoring.coreos.com
 		// CRDs) and the dashboard would be a ConfigMap nobody reads.
 		//
@@ -204,13 +206,14 @@ type resourceRef struct {
 // workloadTierResources are the resources that exist only in the workload tier.
 //
 // The tier split is symmetric: the spoke removes the platform tier, and the hub
-// removes these. A spoke's telemetry agent and its kube-state-metrics have no
-// meaning on the hub, which already runs a full monitoring stack that would
-// duplicate them.
+// removes these. A spoke's telemetry agents and its kube-state-metrics and
+// node-exporter have no meaning on the hub, which already runs a full
+// monitoring stack that would duplicate them.
 var workloadTierResources = map[string][]resourceRef{
 	"helm-releases": {
 		{kind: "HelmRelease", name: "alloy-agent", namespace: "observability"},
 		{kind: "HelmRelease", name: "kube-state-metrics", namespace: "observability"},
+		{kind: "HelmRelease", name: "node-exporter", namespace: "observability"},
 	},
 }
 

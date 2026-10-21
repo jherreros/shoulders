@@ -80,7 +80,7 @@ export function ShouldersPortal() {
 		return [
 			{ label: 'Grafana', description: 'Dashboards, metrics, logs, and traces.', url: platformUIURL('grafana', currentHost) },
 			{ label: 'Hubble', description: 'Network flow visibility powered by Cilium.', url: platformUIURL('hubble', currentHost) },
-			{ label: 'Prometheus', description: 'Metrics querying and alerting rules.', url: platformUIURL('prometheus', currentHost) },
+			{ label: 'Prometheus', description: 'VictoriaMetrics (Prometheus-compatible) metrics and alerting.', url: platformUIURL('prometheus', currentHost) },
 			{ label: 'Alertmanager', description: 'Alert routing and silencing.', url: platformUIURL('alertmanager', currentHost) },
 			{ label: 'Policy Reporter', description: 'Kyverno and Trivy policy results.', url: platformUIURL('reporter', currentHost) },
 			{ label: 'Dex', description: 'OpenID Connect identity provider.', url: platformUIURL('dex', currentHost) },

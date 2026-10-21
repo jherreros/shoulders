@@ -35,16 +35,16 @@ func TestPlatformTierInstallsEverything(t *testing.T) {
 		}
 	}
 	// The hub removes exactly the workload tier's own resources — the spoke
-	// telemetry agent and its kube-state-metrics — and nothing else. Anything
-	// else here would be the platform tier deleting part of itself.
+	// telemetry agents and their local metric exporters — and nothing else.
+	// Anything else here would be the platform tier deleting part of itself.
 	excluded := excludedResourceNames(t, manifest)
 	for name := range excluded {
-		if name != "alloy-agent" && name != "kube-state-metrics" {
+		if name != "alloy-agent" && name != "kube-state-metrics" && name != "node-exporter" {
 			t.Errorf("the hub excludes %q, which is not a workload-tier resource", name)
 		}
 	}
-	if len(excluded) != 2 {
-		t.Errorf("the hub excludes %d resources, want 2 (alloy-agent, kube-state-metrics)", len(excluded))
+	if len(excluded) != 3 {
+		t.Errorf("the hub excludes %d resources, want 3 (alloy-agent, kube-state-metrics, node-exporter)", len(excluded))
 	}
 }
 
@@ -69,7 +69,7 @@ func TestWorkloadTierExcludesThePlatform(t *testing.T) {
 
 	// And the platform tier is removed from them.
 	excluded := excludedResourceNames(t, manifest)
-	for _, want := range []string{"dex", "kube-prometheus-stack", "kyverno", "falco", "alloy"} {
+	for _, want := range []string{"dex", "victoria-metrics-k8s-stack", "prometheus-operator-crds", "kyverno", "falco", "alloy"} {
 		if !excluded[want] {
 			t.Errorf("the workload tier should exclude %q", want)
 		}

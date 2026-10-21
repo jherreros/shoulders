@@ -141,7 +141,7 @@ platform:
 Behavior:
 - `provider: vind` keeps the current local-cluster workflow.
 - `provider: existing` targets an already running cluster and uses `cluster.context` when set.
-- `platform.profile` selects the platform footprint. `medium` is the default and preserves the current setup. `small` keeps the core IDP and basic Grafana/Prometheus while omitting Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- `platform.profile` selects the platform footprint. `medium` is the default and preserves the current setup. `small` keeps the core IDP and basic Grafana/VictoriaMetrics while omitting Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer VictoriaMetrics retention.
 - Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.

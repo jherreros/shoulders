@@ -51,9 +51,11 @@ func TestTierExclusionsCoverEveryPlatformManifest(t *testing.T) {
 		// Workspace.
 		"HelmRelease/kyverno":          true,
 		"HelmRelease/kyverno-policies": true,
-		// The spoke's own telemetry path: its object state, pushed to the hub.
+		// The spoke's own telemetry path: its object state and node metrics,
+		// pushed to the hub.
 		"HelmRelease/kube-state-metrics": true,
 		"HelmRelease/alloy-agent":        true,
+		"HelmRelease/node-exporter":      true,
 	}
 
 	excluded := map[string]bool{}

@@ -12,8 +12,8 @@ import (
 )
 
 // helmReleasesDir is scanned for the chart closure. Profile overlays only
-// remove releases (small) or change values (small/large kps+kyverno), never
-// add charts, so the base union covers every profile.
+// remove releases (small) or change values (small/large VictoriaMetrics and
+// kyverno), never add charts, so the base union covers every profile.
 const helmReleasesDir = "2-addons/manifests/helm-releases"
 
 // helmReposDir maps HelmRepository names to URLs.

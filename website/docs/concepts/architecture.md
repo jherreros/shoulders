@@ -19,7 +19,7 @@ Kustomizations enforce install order: helm repositories → namespaces → helm 
 crossplane → gateway → dex → headlamp.
 
 - **Helm Repositories & Releases** — Cilium, Crossplane, CloudNativePG, Strimzi,
-  Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco,
+  Kyverno, VictoriaMetrics stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco,
   Policy Reporter.
 - **Crossplane Abstractions** — XRDs, Compositions and Functions defining the
   developer-facing API.

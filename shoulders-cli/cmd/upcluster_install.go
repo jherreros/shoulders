@@ -297,6 +297,16 @@ func upOneCluster(cmd *cobra.Command, cluster *config.ResolvedCluster, tracker *
 			return fmt.Errorf("failed waiting for %s deployment: %w", d.name, err)
 		}
 	}
+	if cluster.Tier() == config.TierWorkload {
+		// node-exporter is a DaemonSet, so it is not in the deployment list.
+		// It is part of the standard spoke telemetry set; waiting here keeps
+		// `up` from reporting success while the node metrics are still absent.
+		tracker.UpdateDetail("waiting for observability/node-exporter")
+		if err := bootstrap.WaitForDaemonSetReady(kubeconfig, "observability", "node-exporter", 10*time.Minute); err != nil {
+			tracker.Fail("observability/node-exporter not ready")
+			return fmt.Errorf("failed waiting for node-exporter daemonset: %w", err)
+		}
+	}
 	tracker.UpdateDetail("waiting for garage/garage StatefulSet")
 	if err := bootstrap.WaitForStatefulSetReady(kubeconfig, "garage", "garage", 10*time.Minute); err != nil {
 		tracker.Fail("garage/garage not ready")

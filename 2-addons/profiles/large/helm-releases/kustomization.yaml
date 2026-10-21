@@ -3,4 +3,4 @@ resources:
 
 patches:
   - path: cilium.yaml
-  - path: kube-prometheus-stack.yaml
+  - path: victoria-metrics-k8s-stack.yaml

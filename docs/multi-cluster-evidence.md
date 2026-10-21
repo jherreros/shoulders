@@ -480,6 +480,12 @@ notes that *were* learned:
 If the VictoriaMetrics recommendation is pursued, this should be re-verified with
 a Kubernetes deployment rather than host binaries.
 
+> **Superseded in part by §23.** VictoriaMetrics is now deployed as a single-node
+> `VMSingle` behind the unchanged `prometheus.<domain>` endpoint. Alloy's
+> remote-write to `/api/v1/write` and the query API were verified in that
+> deployment. The multi-instance `vmselect` dedup claim remains **unverified**;
+> the laptop implementation does not use it.
+
 ---
 
 ## 10. Summary of required CLI changes
@@ -1270,6 +1276,11 @@ $ shoulders up --config topology.yaml --local
 The spoke has **no** dex, headlamp, kyverno, observability, policy-reporter,
 trivy, falco, alloy, loki or tempo — and no namespaces for them.
 
+> This table is the §15 run, before the §23 migration. The current split keeps
+> the same shape but replaces `kube-prometheus-stack` with
+> `victoria-metrics-k8s-stack` + `prometheus-operator-crds` on the hub and adds
+> `node-exporter` (with `kube-state-metrics` and `alloy-agent`) to the spoke.
+
 ### 15.2 The mesh, and traffic across it
 
 ```
@@ -1639,6 +1650,13 @@ the hub's own series are not labelled at all — `externalLabels` apply to
 federation and alerting, not to locally stored samples. **An empty `cluster`
 label means "hub"**; that is the convention, and it is the cheapest one that
 does not require rewriting the hub's whole storage path.
+
+> **Superseded by §23 for the backend and job set.** The hub now stores those
+> series in VictoriaMetrics, not Prometheus; the label convention is unchanged.
+> The 41-series measurement covered `kube-state-metrics` only. The standard
+> spoke set now also pushes node-exporter, apiserver, kubelet/cAdvisor, probes,
+> and CoreDNS. The old `/-/ready` check does not apply to VMSingle; §23 uses its
+> `/health` and `/api/v1/query` endpoints.
 
 ### 17.7 What this run proves
 
@@ -2014,7 +2032,7 @@ failure was host capacity.
 
 ---
 
-## 22. The final lifecycle, measured
+## 22. The final lifecycle, measured (pre-metrics)
 
 The topology's acceptance test is not a one-way install: `down` and `up` have to
 work from cold, and a second `up` has to be a no-op for the CNI.
@@ -2050,3 +2068,126 @@ and reconciled the platform, but the Cilium values were unchanged, so
 creation timestamps (hub `23:21:10Z`, spokea `23:27:21Z`), the Helm release
 stayed at revision 2, and `verify-phase1.sh` still passed 18/18. A routine `up`
 does not bounce the CNI.
+
+> **§22 is the pre-metrics lifecycle.** It remains as the record of the
+> multi-cluster/WireGuard work. The final lifecycle for the VictoriaMetrics and
+> standard-spoke-telemetry change is measured in §23; use those numbers for the
+> current tree.
+
+---
+
+## 23. VictoriaMetrics and standard spoke telemetry, measured
+
+This is the current state of the observability change. It supersedes the
+Prometheus-specific details in §9.1, §15.1, §17.6, and §22, while the topology
+results in §§15–21 still stand.
+
+### 23.1 Hub: one VMSingle, one Grafana, one alerting path
+
+The hub's `kube-prometheus-stack` release was replaced by
+`victoria-metrics-k8s-stack` **0.96.0** (VMSingle **v1.154.0**) plus a
+`prometheus-operator-crds` **32.0.1** release. The chart installs VMSingle,
+vmagent, vmalert, Alertmanager, Grafana, kube-state-metrics, and node-exporter;
+the separate CRD release keeps `monitoring.coreos.com` available to CNPG.
+
+Measured on the live `small` hub:
+
+| Check | Result |
+|---|---|
+| HelmReleases | `victoria-metrics-k8s-stack` and `prometheus-operator-crds` both `Ready=True` |
+| VMSingle pod | `1/1 Running`; `/health` returns `OK` |
+| VMSingle PVC | `Bound`, `2Gi`, `local-path`; retention `24h`, `-storage.minFreeDiskSpaceBytes=1536MiB` |
+| Public routes | `grafana.<domain>` 302, `alertmanager.<domain>` 200, `prometheus.<domain>` 200 |
+| VMSingle query API | `count(up)` returned 22 before the spoke was added |
+| Hub labels | `count by (cluster) (kube_pod_info)` returned `{} = 41`; no `cluster` label on hub-local series |
+| CNPG converter | `VMPodScrape/cnpg-cloudnative-pg` exists; `up{job="cnpg-system/cnpg-cloudnative-pg"} = 1` |
+| Old release | no `kube-prometheus-stack` HelmRelease remains |
+
+`prometheus.<domain>` still serves the Prometheus-compatible API and
+`/api/v1/write`; spokes did not need a new write path.
+
+### 23.2 Spoke: the standard job set, all labelled
+
+The spoke runs `kube-state-metrics` (8.6.0), `node-exporter` (4.59.0, a
+host-network DaemonSet), and the metrics-only `alloy-agent` (1.13.0). The agent
+scrapes kube-state-metrics, the spoke apiserver, each node's kubelet at
+`/metrics`, `/metrics/cadvisor`, and `/metrics/probes`, CoreDNS, and each node's
+node-exporter. All samples are remote-written with `cluster="spokea"`.
+
+Measured against the hub's VMSingle:
+
+```
+count by (job) (up{cluster="spokea"})
+  apiserver             1
+  coredns               1
+  kube-state-metrics    1
+  kubelet               2
+  node-exporter         2       (two nodes; fixed after the first run)
+```
+
+`count by (cluster) (kube_pod_info)` returned `{} = 41` for the hub and
+`{cluster="spokea"} = 42` for the spoke. The tenant's pods were present:
+`kube_pod_info{cluster="spokea",namespace="team-a"}` returned 7 series after
+the scheduled load-generator run (6 at the first verification); `node_cpu_seconds_total{cluster="spokea"}` and
+`container_cpu_usage_seconds_total{cluster="spokea"}` were both queryable.
+
+**A target-count defect was found by this measurement.** The first version
+scraped the node-exporter Kubernetes Service VIP, which load-balanced every
+scrape onto one node and reported a single `up` target for a two-node cluster.
+The agent now discovers nodes and scrapes each node IP at `:9100`; the `up`
+count is 2, one per node. This is exactly the kind of claim the evidence log is
+for: the service-based version looked healthy while hiding half the node
+metrics.
+
+### 23.3 The VMSingle flag defect the cold install found
+
+The first cold attempt crashed VMSingle with:
+
+```
+flag provided but not defined: -retention.maxDiskSpaceUsageBytes
+```
+
+That flag belongs to the cluster `vmstorage`, not the single-node binary. The
+implementation now uses `-storage.minFreeDiskSpaceBytes`, which VMSingle does
+support, with the PVC size providing the upper bound:
+
+| Profile | Retention | VMSingle PVC | Free-space floor | Approx. data budget |
+|---|---|---|---|---|
+| `small` | 24h | 2Gi | 1536MiB | ~512MiB |
+| `medium` (base) | 24h | 5Gi | 4GiB | ~1GiB |
+| `large` | 7d | 20Gi | 15GiB | ~5GiB |
+
+The first attempt also exposed a CLI gap: `up` only waited for Grafana, so the
+hub could report success while VMSingle was crash-looping. The hub's deployment
+wait list now includes the operator-created VMSingle deployment, and the spoke
+waits for the node-exporter DaemonSet. Both waits are part of the final run.
+
+### 23.4 Final lifecycle
+
+| Run | Result |
+|---|---|
+| final `down` (both clusters) | **21.95s** (`real 21.95`), exit 0 |
+| final cold `up --local` | **12m06s** (`real 726.44`), exit 0 |
+| idempotent `up --local` | **3m06s** (`real 186.43`), exit 0; Cilium pod UIDs and DaemonSet generations unchanged |
+
+The final cold run is the one that exercises the corrected flags and the
+node-IP node-exporter scrape. The idempotent run re-pushed the artifact and
+reconciled the platform without recreating clusters or bouncing Cilium.
+
+### 23.5 Verification
+
+`verify-vm-final.sh` checks the hub stack and routes, the CNPG conversion, the spoke
+Kustomizations and tenant, hub purity, spoke-local ingress, and every spoke job
+in the hub's VMSingle. The final result is **36/36 checks passed**
+(`RESULT: 36 passed, 0 failed`).
+
+`go test ./...`, `go vet ./...`, `kubectl kustomize` for the base/small/large
+overlays, and `alloy fmt` for the agent configuration all pass.
+
+**Known limitations.** Single-node VMSingle is not HA; `vmselect` multi-instance
+dedup remains unverified and unused. The stock VMKS dashboard sync job fetches
+from GitHub during install, so a strict airgap install needs
+`defaultDashboards`/`defaultRules` disabled. The `small` profile still deletes
+Loki/Tempo while its Grafana datasource entries remain (pre-existing). vind does
+not expose etcd/controller-manager/scheduler/kube-proxy metrics; the
+corresponding scrape objects are disabled rather than left broken.

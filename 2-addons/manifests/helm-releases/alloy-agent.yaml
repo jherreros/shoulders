@@ -32,6 +32,24 @@ spec:
       type: deployment
     serviceMonitor:
       enabled: false
+    # The chart's default cluster rules cover `nodes`, `nodes/pods`,
+    # `nodes/metrics`, and the `/metrics` non-resource URL. The spoke also
+    # scrapes kubelet's cAdvisor and probes endpoints, which need their own
+    # non-resource URLs. The list is repeated rather than merged because Helm
+    # replaces a list value.
+    rbac:
+      clusterRules:
+        - apiGroups: [""]
+          resources: ["nodes"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["nodes/pods"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["nodes/metrics"]
+          verbs: ["get", "list", "watch"]
+        - nonResourceURLs: ["/metrics", "/metrics/cadvisor", "/metrics/probes"]
+          verbs: ["get"]
     alloy:
       configMap:
         content: |
@@ -47,6 +65,163 @@ spec:
               "cluster"     = "${SHOULDERS_CLUSTER_NAME}",
             }]
             job_name   = "kube-state-metrics"
+            forward_to = [prometheus.remote_write.hub.receiver]
+          }
+
+          // kube-apiserver. This is the spoke's own control plane; the hub
+          // never reaches into the spoke. The service-account token and the
+          // cluster CA are projected into the Alloy pod.
+          prometheus.scrape "apiserver" {
+            targets = [{
+              "__address__"      = "kubernetes.default.svc.cluster.local:443",
+              "__metrics_path__" = "/metrics",
+              "__scheme__"       = "https",
+            }]
+            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            tls_config {
+              ca_file     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              server_name = "kubernetes.default.svc"
+            }
+            job_name   = "apiserver"
+            forward_to = [prometheus.remote_write.hub.receiver]
+          }
+
+          // Kubelet metrics include the node's view of pods and volumes;
+          // cAdvisor adds container CPU, memory, and network; probes reports
+          // readiness/liveness checks. They share the hub's `job="kubelet"`
+          // label so the stock dashboards keep working across the topology.
+          discovery.kubernetes "nodes" {
+            role = "node"
+          }
+
+          discovery.relabel "kubelet" {
+            targets = discovery.kubernetes.nodes.targets
+            rule {
+              source_labels = ["__meta_kubernetes_node_address_InternalIP"]
+              target_label  = "__address__"
+              replacement   = "$1:10250"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              target_label = "__scheme__"
+              replacement  = "https"
+            }
+            rule {
+              target_label = "__metrics_path__"
+              replacement  = "/metrics"
+            }
+          }
+
+          discovery.relabel "kubelet_cadvisor" {
+            targets = discovery.kubernetes.nodes.targets
+            rule {
+              source_labels = ["__meta_kubernetes_node_address_InternalIP"]
+              target_label  = "__address__"
+              replacement   = "$1:10250"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              target_label = "__scheme__"
+              replacement  = "https"
+            }
+            rule {
+              target_label = "__metrics_path__"
+              replacement  = "/metrics/cadvisor"
+            }
+          }
+
+          discovery.relabel "kubelet_probes" {
+            targets = discovery.kubernetes.nodes.targets
+            rule {
+              source_labels = ["__meta_kubernetes_node_address_InternalIP"]
+              target_label  = "__address__"
+              replacement   = "$1:10250"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              target_label = "__scheme__"
+              replacement  = "https"
+            }
+            rule {
+              target_label = "__metrics_path__"
+              replacement  = "/metrics/probes"
+            }
+          }
+
+          prometheus.scrape "kubelet" {
+            targets           = discovery.relabel.kubelet.output
+            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            tls_config {
+              insecure_skip_verify = true
+            }
+            job_name   = "kubelet"
+            forward_to = [prometheus.remote_write.hub.receiver]
+          }
+
+          prometheus.scrape "kubelet_cadvisor" {
+            targets           = discovery.relabel.kubelet_cadvisor.output
+            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            tls_config {
+              insecure_skip_verify = true
+            }
+            job_name   = "kubelet"
+            forward_to = [prometheus.remote_write.hub.receiver]
+          }
+
+          prometheus.scrape "kubelet_probes" {
+            targets           = discovery.relabel.kubelet_probes.output
+            bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            tls_config {
+              insecure_skip_verify = true
+            }
+            job_name   = "kubelet"
+            forward_to = [prometheus.remote_write.hub.receiver]
+          }
+
+          // CoreDNS exposes its metrics on the kube-dns service. It is a
+          // cluster-local service, so no credentials are needed.
+          prometheus.scrape "coredns" {
+            targets = [{
+              "__address__" = "kube-dns.kube-system.svc.cluster.local:9153",
+            }]
+            job_name   = "coredns"
+            forward_to = [prometheus.remote_write.hub.receiver]
+          }
+
+          // Node-level CPU, memory, filesystem, and network. The node-exporter
+          // release is a host-network DaemonSet, one pod per node. Scrape the
+          // node IPs directly rather than the service VIP: a service address
+          // would load-balance every scrape onto a single node and silently
+          // hide the rest of the cluster.
+          discovery.kubernetes "nodes_node_exporter" {
+            role = "node"
+          }
+
+          discovery.relabel "node_exporter" {
+            targets = discovery.kubernetes.nodes_node_exporter.targets
+            rule {
+              source_labels = ["__meta_kubernetes_node_address_InternalIP"]
+              target_label  = "__address__"
+              replacement   = "$1:9100"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_node_name"]
+              target_label  = "node"
+            }
+          }
+
+          prometheus.scrape "node_exporter" {
+            targets    = discovery.relabel.node_exporter.output
+            job_name   = "node-exporter"
             forward_to = [prometheus.remote_write.hub.receiver]
           }
 

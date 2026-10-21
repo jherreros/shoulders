@@ -237,7 +237,7 @@ on an 11 CPU / ~12 GiB VM. The extra RAM + 100 GiB disk improve the odds, but
   calls), docs link/copy-paste checks. Always runs on this machine.
 - **Tier 1 — `small` live loop (the workhorse).**
   `shoulders down; shoulders up --local --set platform.profile=small` → edit →
-  `shoulders sync` → `shoulders status --wait` green (reference: 37/37 pods) →
+  `shoulders sync` → `shoulders status --wait` green (reference: 40/40 running pods, 41 total after the VictoriaMetrics migration) →
   `kubectl diff` clean. Single-workload deploys only.
 - **Tier 2 — heavier single-machine, bounded.** Simulated near-full-disk
   negative test for A3 (small throwaway fill, then delete — never actually fill

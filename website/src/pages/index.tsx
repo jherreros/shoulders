@@ -30,7 +30,7 @@ function Terminal(): ReactNode {
 
 const stack = [
   'Crossplane', 'FluxCD', 'Cilium', 'Gateway API', 'Strimzi Kafka',
-  'CloudNativePG', 'Prometheus', 'Grafana', 'Loki', 'Tempo',
+  'CloudNativePG', 'VictoriaMetrics', 'Grafana', 'Loki', 'Tempo',
   'Kyverno', 'Trivy', 'Falco', 'Dex', 'Headlamp', 'Garage S3',
 ];
 
@@ -62,7 +62,7 @@ const features = [
       </svg>
     ),
     title: 'Observability from day zero',
-    text: 'Metrics, logs and traces wired automatically through Prometheus, Loki, Tempo and Grafana. Every app is born observable.',
+    text: 'Metrics, logs and traces wired automatically through VictoriaMetrics, Loki, Tempo and Grafana. Every app is born observable.',
   },
   {
     icon: (
@@ -251,7 +251,7 @@ export default function Home(): ReactNode {
             <div className={styles.profileCard}>
               <h3>Small</h3>
               <p className={styles.profileTag}>Laptops &amp; small clusters</p>
-              <p>Core IDP, Prometheus + Grafana, Dex, Headlamp, PostgreSQL, S3. No event streams, no heavy scanners.</p>
+              <p>Core IDP, VictoriaMetrics + Grafana, Dex, Headlamp, PostgreSQL, S3. No event streams, no heavy scanners.</p>
             </div>
             <div className={`${styles.profileCard} ${styles.profileFeatured}`}>
               <div className={styles.profileFlag}>Default</div>
@@ -262,7 +262,7 @@ export default function Home(): ReactNode {
             <div className={styles.profileCard}>
               <h3>Large</h3>
               <p className={styles.profileTag}>Maximum headroom</p>
-              <p>Full feature set on 3 workers with longer Prometheus retention.</p>
+              <p>Full feature set on 3 workers with longer VictoriaMetrics retention.</p>
             </div>
           </div>
           <p>

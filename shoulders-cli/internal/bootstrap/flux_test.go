@@ -174,8 +174,8 @@ func TestFluxPlatformConfigManifestIncludesProfileDefaults(t *testing.T) {
 		`SHOULDERS_PROFILE: "small"`,
 		`SHOULDERS_POSTGRES_INSTANCES: "1"`,
 		`SHOULDERS_KAFKA_REPLICAS: "1"`,
-		`SHOULDERS_PROMETHEUS_RETENTION: "6h"`,
-		`SHOULDERS_PROMETHEUS_RETENTION_SIZE: "512MiB"`,
+		`SHOULDERS_METRICS_RETENTION: "24h"`,
+		`SHOULDERS_METRICS_MIN_FREE_DISK: "1536MiB"`,
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("expected platform config to contain %q\n%s", want, manifest)

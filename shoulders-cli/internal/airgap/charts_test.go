@@ -43,7 +43,7 @@ func TestChartInventoryCoversAllReleases(t *testing.T) {
 			t.Fatalf("release %s is missing its OCI repo name", entry.Release)
 		}
 	}
-	for _, want := range []string{"cilium", "crossplane", "strimzi", "garage", "headlamp", "kube-prometheus-stack", "kyverno", "dex", "loki", "tempo"} {
+	for _, want := range []string{"cilium", "crossplane", "strimzi", "garage", "headlamp", "victoria-metrics-k8s-stack", "prometheus-operator-crds", "node-exporter", "kyverno", "dex", "loki", "tempo"} {
 		if _, ok := byRelease[want]; !ok {
 			t.Fatalf("expected release %s in inventory", want)
 		}
@@ -65,7 +65,8 @@ func TestChartInventoryCoversAllReleases(t *testing.T) {
 
 func TestOCIRepoNameIsDNSSafe(t *testing.T) {
 	for input, want := range map[string]string{
-		"kube-prometheus-stack":       "chart-kube-prometheus-stack",
+		"victoria-metrics-k8s-stack":  "chart-victoria-metrics-k8s-stack",
+		"prometheus-operator-crds":    "chart-prometheus-operator-crds",
 		"trivy-operator-polr-adapter": "chart-trivy-operator-polr-adapter",
 		"Garage_Admin":                "chart-garage-admin",
 	} {
