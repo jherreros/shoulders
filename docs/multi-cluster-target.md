@@ -789,7 +789,7 @@ delivery (D17) are implemented and measured — evidence §12–§22.
 | D20 — SOPS + age | **Implemented and measured** (§18). The CLI generates the identity and publishes it as `flux-system/sops-age` before the Kustomizations; flux decrypts a `*.sops.yaml` Secret in the tenant tree, and the value is visible in a running pod. Decryption stays off when no key exists. |
 | D21 — local-by-default network policy | **Implemented and measured** (§19). A namespace-only policy no longer reaches the hub; an explicit `io.cilium.k8s.policy.cluster` pin selects exactly one cluster. No shipped policy needs the wide scope. |
 | WireGuard encryption | **Enabled and measured** (§20). Pod-to-pod traffic is encrypted across the mesh (`Peers: 3`). Node encryption is off on every node: the control-plane opt-out split broke the cold-install mesh/telemetry host paths, and the mesh control plane is mTLS anyway. Applying changed values on a Flux-owned release forces the HelmRelease, waits for a newer deployed revision, repairs keys Helm leaves stale, then rolls the agents. |
-| D10 — laptop ceiling | **Validated by measurement** (§21). Hub + 1 spoke is stable; a third spoke's control plane overwhelmed this host, and the APIs recovered when it was removed. The code supports three; the laptop does not. Cold `down` 18s, cold `up` 12m28s, idempotent `up` 3m05s (§22). |
+| D10 — laptop ceiling | **Validated by measurement** (§21). Hub + 1 spoke is stable; a third spoke's control plane overwhelmed this host, and the APIs recovered when it was removed. The code supports three; the laptop does not. `down` 18s, cold `up` 12m28s, idempotent `up` 3m05s (§22). |
 
 ### Cluster resolution now has one answer
 

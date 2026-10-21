@@ -184,6 +184,7 @@ platform:
 clusters:
   - name: hub
     role: hub                # hub | spoke | edge
+    domain: hub.127.0.0.1.sslip.io
     ports:                   # host bindings; only one vind cluster may claim a port
       http: 80
       https: 443
@@ -193,13 +194,13 @@ clusters:
       http: 8080
       https: 8443
     flux:
-      pathPrefix: "clusters/spoke-a"
+      pathPrefix: "clusters/spoke-a"  # optional; must exist in the source
 ```
 
 Notes:
 - `provider: vind` preserves the current default behavior.
 - `provider: existing` skips cluster creation and targets the configured kube context.
-- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo, the log-shipping Alloy (the spoke's metrics-only `alloy-agent` stays), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` stays), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
 - Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
@@ -272,9 +273,10 @@ Notes:
 - Every command that talks to a cluster resolves one through the global
   `--cluster` flag, so a topology never needs an ambient kube context. The MCP
   server takes the same selector as `SHOULDERS_CLUSTER`.
-- Only the hub declares `platform.domain`; a spoke serves workload hostnames
-  qualified by its own name (`<app>.<cluster>.<domain>`). Two clusters
-  declaring the same domain are rejected.
+- Only the hub declares the domain (`platform.domain`, or `domain` on the hub
+  entry); a spoke declares none and serves workload hostnames qualified by its
+  own name (`<app>.<cluster>.<domain>`). Two clusters declaring the same domain
+  are rejected.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
 - `platform.flux.source: oci` with `ociRepository.url`/`tag` reconciles the same Kustomization paths from a pre-pushed OCI artifact (same directory layout, immutable tag) instead of git. Useful for local dirty-tree iteration and airgap installs once the snapshot push (Phase 1) and bundle vendoring (Phase 2) land.
 
@@ -320,7 +322,7 @@ Known limitations (documented divergences, not bugs):
 - Trivy vulnerability databases download at runtime; scanning degrades gracefully offline.
 - `provider: existing` + `--bundle` is rejected: images must be pre-mirrored by other tooling (the bundle's image list is the manifest to mirror).
 - vind freezes cluster DNS state at creation; `shoulders start` reconciles CoreDNS forwarding against the machine's current nameservers on every boot.
-- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, `platform.flux.source`, `platform.flux.ociRepository.url`, `platform.flux.ociRepository.tag`, and `platform.flux.pathPrefix`.
+- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, `platform.flux.source`, `platform.flux.ociRepository.url`, `platform.flux.ociRepository.tag`, `platform.flux.ociRepository.insecure`, and `platform.flux.pathPrefix`.
 - On `provider: existing`, `shoulders down` removes the Flux-managed Shoulders platform from the current cluster. If `platform.cilium.enabled: true`, it also uninstalls the `cilium` Helm release from `kube-system`.
 
 Profile summary:
@@ -387,7 +389,7 @@ shoulders portal                        # Open Headlamp portal (prefers the conf
 shoulders reporter                      # Open Policy Reporter UI (prefers the configured gateway host; defaults to reporter.localhost)
 ```
 
-Global flags: `--config`, `--set key=value`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
+Global flags: `--config`, `--set key=value`, `--cluster <name>`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
 
 ## Platform Abstractions
 

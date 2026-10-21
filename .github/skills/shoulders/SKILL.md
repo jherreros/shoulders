@@ -54,7 +54,9 @@ For more deployment patterns (multi-service, full-stack with Kafka, etc.), see [
 
 ## Platform Profiles
 
-Shoulders supports `platform.profile: small|medium|large` in the CLI config. `medium` is the default. The `small` profile keeps the core IDP, PostgreSQL, Redis, Garage buckets, Grafana/Prometheus, Dex, Headlamp, Crossplane, and Kyverno admission, but omits Kafka Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` for Kafka streams or Policy Reporter workflows.
+Shoulders supports `platform.profile: small|medium|large` in the CLI config. `medium` is the default. The `small` profile keeps the core IDP, PostgreSQL, Redis, Garage buckets, Grafana/Prometheus, Dex, Headlamp, Crossplane, and Kyverno admission, but omits Kafka Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` for Kafka streams or Policy Reporter workflows.
+
+A `clusters:` list can describe a hub-and-spoke topology. Pass `--cluster <name>` to target one cluster; the MCP server uses `SHOULDERS_CLUSTER`.
 
 ## Key Commands
 
@@ -112,6 +114,7 @@ Kafka Event Streams and Policy Reporter are not installed with `platform.profile
 ```bash
 shoulders cluster list                    # See available clusters
 shoulders cluster use <name>              # Switch to correct cluster
+shoulders --cluster <name> status         # Target a cluster in a topology
 ```
 
 ## MCP Server

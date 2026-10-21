@@ -35,6 +35,7 @@ go build -o shoulders
 ./shoulders --config ./cfg.yml up     # Install onto the cluster selected in a config file
 ./shoulders cluster list              # List running vind clusters or kube contexts
 ./shoulders cluster use dev           # Switch context to 'dev' cluster or kube context
+./shoulders --cluster spokea status   # Select a cluster from a topology
 ./shoulders down --name dev           # Delete a local vind cluster
 ./shoulders --config ./cfg.yml down   # Uninstall Shoulders from an existing cluster
 ./shoulders update                    # Check for and install a new CLI version
@@ -96,7 +97,7 @@ go build -o shoulders
 ./shoulders skill install --workspace # Install into the current project instead of globally
 ```
 
-The default `*.localhost` access pattern requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:
+The default `*.localhost` access pattern requires host port `80` to be available when the cluster is created. In a topology, each cluster declares its own `ports:`. If you changed these settings, recreate the cluster:
 
 ```bash
 ./shoulders down
@@ -110,6 +111,8 @@ The CLI reads `~/.shoulders/config.yaml` by default, or another file via `--conf
 ./shoulders --set cluster.provider=existing --set cluster.context=kind-dev up
 ./shoulders --config ./cfg.yml --set platform.profile=small up
 ```
+
+A `clusters:` list replaces the single `cluster:` block. Each entry overlays the shared `platform:` block; `role: hub` runs the platform tier and `role: spoke` the workload tier. Every command resolves one through `--cluster <name>` (the MCP server uses `SHOULDERS_CLUSTER`), and `cluster use` writes back to the topology entry. `platform.mesh.enabled: true` joins the clusters with Cilium ClusterMesh; `platform.mesh.encryption: wireguard` encrypts pod-to-pod traffic. See the root README and `docs/multi-cluster-target.md`.
 
 Example schema:
 
@@ -127,7 +130,7 @@ platform:
   domain: ""            # Optional suffix like lvh.me -> grafana.lvh.me, headlamp.lvh.me, dex.lvh.me
   cilium:
     enabled: true
-    version: "1.19.2"
+    version: "1.20.2"
   flux:
     gitRepository:
       url: "https://github.com/jherreros/shoulders.git"
@@ -138,14 +141,14 @@ platform:
 Behavior:
 - `provider: vind` keeps the current local-cluster workflow.
 - `provider: existing` targets an already running cluster and uses `cluster.context` when set.
-- `platform.profile` selects the platform footprint. `medium` is the default and preserves the current setup. `small` keeps the core IDP and basic Grafana/Prometheus while omitting Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- `platform.profile` selects the platform footprint. `medium` is the default and preserves the current setup. `small` keeps the core IDP and basic Grafana/Prometheus while omitting Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
 - Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
 - When Cilium is disabled, Gateway route health is treated as externally managed and `up`/`status` do not block on a Cilium Gateway.
 - `platform.domain` remaps the public hosts together: `dex.<domain>`, `grafana.<domain>`, `headlamp.<domain>`, `reporter.<domain>`, `prometheus.<domain>`, `alertmanager.<domain>`, and `hubble.<domain>`.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let Flux reconcile the Shoulders manifests from a different repository, branch, or subdirectory.
-- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, and `platform.flux.pathPrefix`.
+- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.source`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, `platform.flux.ociRepository.url`, `platform.flux.ociRepository.tag`, `platform.flux.ociRepository.insecure`, and `platform.flux.pathPrefix`.
 - `down` deletes the local cluster for `vind`, and removes the Flux-managed Shoulders platform for `existing`.
 - `start` and `stop` are only meaningful for local vind clusters.
 

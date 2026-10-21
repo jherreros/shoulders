@@ -9,8 +9,9 @@
 | `large` | Full local platform | control plane + 3 workers | Yes | Trivy, Falco, Policy Reporter |
 
 `small` keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane,
-Kyverno admission, CNPG and Garage, but omits Loki/Tempo/Alloy, Hubble UI, Trivy,
-Falco and Policy Reporter.
+Kyverno admission, CNPG and Garage, but omits Loki/Tempo, the log-shipping
+Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI,
+Trivy, Falco and Policy Reporter.
 
 ## Minimum hardware
 

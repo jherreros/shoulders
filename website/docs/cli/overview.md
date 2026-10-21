@@ -26,7 +26,8 @@ shoulders reporter
 shoulders skill install
 ```
 
-Global flags: `--config`, `--set key=value`, `--kubeconfig`, `--output table|json|yaml`.
+Global flags: `--config`, `--set key=value`, `--cluster <name>`,
+`--kubeconfig`, `--output table|json|yaml`.
 Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
 
 Regenerate locally:

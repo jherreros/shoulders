@@ -107,12 +107,15 @@ poll intervals. Guidelines:
 
 1. **Prefer `up --local` + `sync` over `up` for every iteration.** The git
    path exists for releases and CI; iterating through pushed branches is
-   slower and pollutes history.
+   slower and pollutes history. In a topology, run `up --local` once per
+   cluster: each vind cluster has its own in-cluster registry, so a hub
+   install does not populate the spokes.
 2. **Use `small` unless you need the omitted components.** Small keeps the
    core IDP (PostgreSQL, Redis, Garage, Grafana/Prometheus, Dex, Headlamp,
    Crossplane, Kyverno) with one vind worker and converges in minutes.
-   Medium adds Kafka (3 brokers), Loki/Tempo/Alloy, Hubble UI, Trivy, Falco,
-   and Policy Reporter — much heavier (see resource guidance).
+   Medium adds Kafka (3 brokers), the log-shipping Alloy, Loki/Tempo, Hubble
+   UI, Trivy, Falco, and Policy Reporter — much heavier (see resource
+   guidance).
 3. **`shoulders status --wait` must be green before opening a PR** that
    touches `2-addons/` or the CLI install path.
 4. **Airgap changes need the bundle loop.** If you touch chart inventory,
@@ -137,9 +140,9 @@ vind clusters share the Docker Desktop VM, so profile weight shows up as
 node `DiskPressure`, evictions, and webhook timeouts — not just slowness.
 What each profile runs:
 
-| Profile | vind nodes | Kafka | Observability (Loki/Tempo/Alloy, Hubble) | Trivy / Falco / Policy Reporter | Postgres | Prometheus |
-|---------|-----------|-------|------------------------------------------|---------------------------------|----------|------------|
-| `small` | control-plane + 1 worker | no | no | no | 1 instance | 6h / 512MiB |
+| Profile | vind nodes | Kafka | Observability (Loki/Tempo/log Alloy, Hubble) | Trivy / Falco / Policy Reporter | Postgres | Prometheus |
+|---------|-----------|-------|---------------------------------------------|---------------------------------|----------|------------|
+| `small` | control-plane + 1 worker | no | no (metrics-only `alloy-agent` on a spoke) | no | 1 instance | 6h / 512MiB |
 | `medium` (default) | control-plane + 2 workers | yes, 3 brokers | yes | yes | 2 instances | 24h / 1GiB |
 | `large` | control-plane + 3 workers | yes, 3 brokers | yes | yes | 2 instances | 7d / 5GiB |
 

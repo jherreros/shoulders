@@ -8,6 +8,10 @@ Creates a Kubernetes cluster using **vind** (vCluster in Docker) for local devel
 Vind provides automatic LoadBalancer support, sleep/wake capability and pull-through
 image caching.
 
+`clusters:` can describe a hub-and-spoke topology: the hub runs the platform tier,
+spokes run the workload tier, and Cilium ClusterMesh connects them. The single
+`cluster:` form remains the monocluster hub case.
+
 ## 2. Addons Layer (`2-addons/`)
 
 Installs platform components using **FluxCD** for GitOps-based deployment. Flux
