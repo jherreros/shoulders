@@ -43,7 +43,7 @@ func TestCiliumHandOffToFlux(t *testing.T) {
 
 	cluster := clusterNamed(handoffCluster, config.RoleHub, true,
 		config.PortMapping{HTTP: 80, HTTPS: 443})
-	cluster.PlatformConfig.Cilium.Version = config.DefaultCiliumVersion
+	cluster.Cilium.Version = config.DefaultCiliumVersion
 	selectCluster(cluster)
 	plan, err := newTopologyPlan([]*config.ResolvedCluster{cluster})
 	if err != nil {

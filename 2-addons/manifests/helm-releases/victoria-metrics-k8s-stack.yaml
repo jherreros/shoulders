@@ -37,7 +37,7 @@ spec:
           searchNamespace: ALL
       grafana.ini:
         server:
-          root_url: http://${SHOULDERS_GRAFANA_HOST}
+          root_url: http://${SHOULDERS_GRAFANA_HOST} # NOSONAR: local gateway is HTTP-only
         auth:
           disable_login_form: false
         auth.generic_oauth:
@@ -59,7 +59,7 @@ spec:
             - name: Loki
               uid: loki
               type: loki
-              url: http://loki.observability:3100
+              url: http://loki.observability:3100 # NOSONAR: in-cluster service has no TLS endpoint
               access: proxy
               jsonData:
                 derivedFields:
@@ -70,7 +70,7 @@ spec:
             - name: Tempo
               uid: tempo
               type: tempo
-              url: http://tempo.observability:3100
+              url: http://tempo.observability:3100 # NOSONAR: in-cluster service has no TLS endpoint
               access: proxy
               jsonData:
                 tracesToLogsV2:

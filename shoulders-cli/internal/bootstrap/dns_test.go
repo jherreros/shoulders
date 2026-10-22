@@ -241,23 +241,6 @@ func TestRestartCoreDNSFailsLoudlyWhenNothingMatches(t *testing.T) {
 
 // --- CoreDNS restart semantics ------------------------------------------------
 
-const corednsConfigMap = `
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: coredns
-  namespace: kube-system
-data:
-  Corefile: |
-    .:53 {
-        hosts /etc/coredns/NodeHosts {
-            10.90.0.2 hub.mesh.cilium.io
-            fallthrough
-        }
-        forward . 1.1.1.1
-    }
-`
-
 func coreDNSPod(name string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -304,7 +287,9 @@ func TestSeedCoreDNSHostsRestartsRunningCoreDNS(t *testing.T) {
 	if err := createCoreDNSConfigMap(clientset); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	clientset.CoreV1().Pods("kube-system").Create(context.Background(), coreDNSPod("coredns-1"), metav1.CreateOptions{})
+	if _, err := clientset.CoreV1().Pods("kube-system").Create(context.Background(), coreDNSPod("coredns-1"), metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create CoreDNS pod: %v", err)
+	}
 
 	restarted, err := seedCoreDNSHosts(context.Background(), clientset, []string{"10.90.0.4 spoke-a.mesh.cilium.io"})
 	if err != nil {

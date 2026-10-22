@@ -646,23 +646,6 @@ func RestartStuckPods(kubeconfigPath string) error {
 	return nil
 }
 
-// unstructuredNestedMap safely retrieves a nested map from an unstructured object.
-func unstructuredNestedMap(obj map[string]interface{}, fields ...string) (map[string]interface{}, bool, error) {
-	current := obj
-	for _, field := range fields {
-		val, ok := current[field]
-		if !ok {
-			return nil, false, nil
-		}
-		m, ok := val.(map[string]interface{})
-		if !ok {
-			return nil, false, fmt.Errorf("field %q is not a map", field)
-		}
-		current = m
-	}
-	return current, true, nil
-}
-
 func nestedSlice(obj map[string]interface{}, fields ...string) ([]interface{}, bool) {
 	current := obj
 	for index, field := range fields {

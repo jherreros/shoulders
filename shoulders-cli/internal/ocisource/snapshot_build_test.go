@@ -36,7 +36,23 @@ func TestSnapshotIsBuildableByKustomize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gunzip snapshot: %v", err)
 	}
-	defer gz.Close()
+	defer func() {
+		if err := gz.Close(); err != nil {
+			t.Errorf("close snapshot gzip: %v", err)
+		}
+	}()
+	// os.Root keeps every archive entry inside dir even if a header contains an
+	// absolute path or "..". The snapshot is generated locally, but the test is
+	// still the place where a malformed artifact would be caught.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatalf("open extraction root: %v", err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Errorf("close extraction root: %v", err)
+		}
+	}()
 	reader := tar.NewReader(gz)
 	for {
 		header, err := reader.Next()
@@ -46,15 +62,15 @@ func TestSnapshotIsBuildableByKustomize(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read tar: %v", err)
 		}
-		target := filepath.Join(dir, filepath.Clean(header.Name))
+		name := filepath.FromSlash(header.Name)
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				t.Fatalf("mkdir %s: %v", target, err)
+			if err := root.MkdirAll(name, 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", name, err)
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				t.Fatalf("mkdir %v: %v", filepath.Dir(target), err)
+			if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+				t.Fatalf("mkdir %v: %v", filepath.Dir(name), err)
 			}
 			body, err := io.ReadAll(reader)
 			if err != nil {
@@ -62,11 +78,11 @@ func TestSnapshotIsBuildableByKustomize(t *testing.T) {
 			}
 			// Preserve the recorded mode: a mode that makes the file
 			// unreadable would make kustomize skip it silently.
-			if err := os.WriteFile(target, body, os.FileMode(header.Mode)); err != nil {
-				t.Fatalf("write %s: %v", target, err)
+			if err := root.WriteFile(name, body, os.FileMode(header.Mode)); err != nil {
+				t.Fatalf("write %s: %v", name, err)
 			}
-			if err := os.Chmod(target, os.FileMode(header.Mode)); err != nil {
-				t.Fatalf("chmod %s: %v", target, err)
+			if err := root.Chmod(name, os.FileMode(header.Mode)); err != nil {
+				t.Fatalf("chmod %s: %v", name, err)
 			}
 		}
 	}

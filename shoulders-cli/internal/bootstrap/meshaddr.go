@@ -17,7 +17,11 @@ import (
 // Returned in "<address>:<port>" form, ready for the Cilium clusters map.
 func ClusterMeshAddress(ctx context.Context, clusterName string, port int) (string, error) {
 	container := controlPlanePrefix + clusterName
-	out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", container).Output()
+	docker, err := exec.LookPath("docker")
+	if err != nil {
+		return "", fmt.Errorf("find docker: %w", err)
+	}
+	out, err := exec.CommandContext(ctx, docker, "inspect", "--format", "{{json .NetworkSettings.Networks}}", container).Output()
 	if err != nil {
 		return "", fmt.Errorf("inspect container %q: %w", container, err)
 	}

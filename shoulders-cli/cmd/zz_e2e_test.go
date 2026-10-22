@@ -52,8 +52,8 @@ func TestTopologyOrchestrationE2E(t *testing.T) {
 	if clusters[0].Role != config.RoleHub {
 		t.Fatalf("hub must lead the install order")
 	}
-	clusters[0].PlatformConfig.Cilium.Version = e2eCiliumVersion
-	clusters[1].PlatformConfig.Cilium.Version = e2eCiliumVersion
+	clusters[0].Cilium.Version = e2eCiliumVersion
+	clusters[1].Cilium.Version = e2eCiliumVersion
 	if err := validateMeshedTopology(clusters); err != nil {
 		t.Fatalf("topology rejected: %v", err)
 	}
@@ -126,8 +126,8 @@ func TestTopologyTiersAreInstalled(t *testing.T) {
 	}
 	ctx := context.Background()
 	clusters := e2eClusters(t)
-	clusters[0].PlatformConfig.Cilium.Version = e2eCiliumVersion
-	clusters[1].PlatformConfig.Cilium.Version = e2eCiliumVersion
+	clusters[0].Cilium.Version = e2eCiliumVersion
+	clusters[1].Cilium.Version = e2eCiliumVersion
 
 	plan, err := newTopologyPlan(clusters)
 	if err != nil {

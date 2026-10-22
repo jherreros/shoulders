@@ -4,6 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/bootstrap"
@@ -78,7 +81,7 @@ func (p *topologyPlan) publicConfigFor(cluster *config.ResolvedCluster) bootstra
 		// The hub is its own issuer. Its Headlamp callback is the plain host:
 		// the gateway is published on the default port.
 		config.TLS = p.hubTLS
-		config.HeadlampCallbackURL = fmt.Sprintf("http://%s/oidc-callback", config.HeadlampHost)
+		config.HeadlampCallbackURL = headlampCallbackURL(config.HeadlampHost, 80)
 		config.HeadlampClientID = defaultHeadlampClientID
 		config.HeadlampClientSecret = defaultHeadlampClientSecret
 		return config
@@ -98,13 +101,20 @@ func (p *topologyPlan) publicConfigFor(cluster *config.ResolvedCluster) bootstra
 	// The spoke's gateway is published on its own host ports, so its callback
 	// carries the port. The hub's does not, which is why the whole URL is
 	// carried rather than assembled from a host and a port here.
-	port := cluster.Ports.HTTP
-	if port == 80 {
-		config.HeadlampCallbackURL = fmt.Sprintf("http://%s/oidc-callback", config.HeadlampHost)
-	} else {
-		config.HeadlampCallbackURL = fmt.Sprintf("http://%s:%d/oidc-callback", config.HeadlampHost, port)
-	}
+	config.HeadlampCallbackURL = headlampCallbackURL(config.HeadlampHost, cluster.Ports.HTTP)
 	return config
+}
+
+// headlampCallbackURL builds the OIDC callback the local gateway serves.
+//
+// The laptop gateway is HTTP-only. Dex matches redirect URIs exactly, so this
+// must stay the same scheme as the browser-facing Headlamp URL.
+func headlampCallbackURL(host string, port int) string {
+	callback := url.URL{Scheme: "http", Host: host, Path: "/oidc-callback"} // NOSONAR: local gateway is HTTP-only
+	if port != 80 {
+		callback.Host = net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	return callback.String()
 }
 
 // The hub's own Headlamp client. It is the one the repository has always

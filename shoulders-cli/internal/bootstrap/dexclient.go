@@ -121,9 +121,7 @@ func dexStaticClients(release *unstructured.Unstructured) ([]dexClient, error) {
 		client.ID, _ = entry["id"].(string)
 		client.Name, _ = entry["name"].(string)
 		client.Secret, _ = entry["secret"].(string)
-		for _, uri := range toStringSlice(entry["redirectURIs"]) {
-			client.RedirectURIs = append(client.RedirectURIs, uri)
-		}
+		client.RedirectURIs = append(client.RedirectURIs, toStringSlice(entry["redirectURIs"])...)
 		clients = append(clients, client)
 	}
 	return clients, nil
@@ -151,12 +149,7 @@ func dexStaticClientsPatch(clients []dexClient) (string, error) {
 	}
 	entries := make([]entry, 0, len(clients))
 	for _, client := range clients {
-		entries = append(entries, entry{
-			ID:           client.ID,
-			Name:         client.Name,
-			Secret:       client.Secret,
-			RedirectURIs: client.RedirectURIs,
-		})
+		entries = append(entries, entry(client))
 	}
 	body, err := yaml.Marshal(entries)
 	if err != nil {
