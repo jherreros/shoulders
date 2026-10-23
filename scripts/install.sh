@@ -19,7 +19,7 @@ fi
 
 # Follow the release redirect rather than using the unauthenticated GitHub
 # API, which is limited to 60 requests/hour per IP and fails on shared networks.
-VERSION=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" | sed -n 's#.*/releases/tag/##p')
+VERSION=$(curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" | sed -n 's#.*/releases/tag/##p')
 if [[ "$VERSION" != v* ]]; then
   echo "Failed to fetch latest version"
   exit 1
@@ -39,12 +39,12 @@ ARCHIVE="$TMP_DIR/$TARBALL"
 CHECKSUMS="$TMP_DIR/checksums.txt"
 
 echo "Downloading $URL..."
-if ! curl -fsSL "$URL" -o "$ARCHIVE"; then
+if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$URL" -o "$ARCHIVE"; then
   echo "Failed to download archive"
   exit 1
 fi
 
-if ! curl -fsSL "$CHECKSUMS_URL" -o "$CHECKSUMS"; then
+if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$CHECKSUMS_URL" -o "$CHECKSUMS"; then
   echo "Failed to download checksums"
   exit 1
 fi
