@@ -21,7 +21,8 @@ const (
 	apiserverRestartTimeout = 2 * time.Minute
 )
 
-func WaitForDeploymentReady(kubeconfig, namespace, name string, timeout time.Duration) error {	clientset, err := kube.NewClientset(kubeconfig)
+func WaitForDeploymentReady(kubeconfig, namespace, name string, timeout time.Duration) error {
+	clientset, err := kube.NewClientset(kubeconfig)
 	if err != nil {
 		return err
 	}

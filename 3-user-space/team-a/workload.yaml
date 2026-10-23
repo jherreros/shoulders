@@ -6,7 +6,7 @@ metadata:
 spec:
   type: cronjob
   image: curlimages/curl
-  tag: latest
+  tag: "8.11.1"
   schedule: "*/5 * * * *"
   args:
     - -fsS
@@ -20,3 +20,11 @@ spec:
       memory: 128Mi
   securityContext:
     runAsNonRoot: true
+    # The curl image declares USER curl_user, not a uid. runAsNonRoot alone
+    # cannot verify a non-numeric user, so the kubelet refuses the container:
+    #
+    #   container has runAsNonRoot and image has non-numeric user (curl_user),
+    #   cannot verify user is non-root
+    #
+    # Naming the uid (curl_user is 100 in this image) makes the check decidable.
+    runAsUser: 100

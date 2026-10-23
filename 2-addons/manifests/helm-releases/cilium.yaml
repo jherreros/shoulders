@@ -13,6 +13,31 @@ spec:
         name: cilium
         namespace: flux-system
       version: "1.20.2"
+  # Cilium is bootstrapped by the CLI (Flux cannot reconcile anything until a
+  # CNI is running) and then adopted by this HelmRelease, which is named to match
+  # the CLI's Helm release exactly. helm-controller takes over rather than
+  # creating a second release.
+  #
+  # Some values cannot live here because they are discovered at install time and
+  # differ per cluster: the API server endpoint the agents must reach
+  # (k8sServiceHost/Port), and the cluster's identity and peer list when a mesh
+  # is configured. The CLI writes those to a ConfigMap and references it here.
+  #
+  # The key sets are deliberately disjoint: nothing below sets kubeProxyReplacement,
+  # k8sServiceHost, k8sServicePort, extraConfig, cluster, clustermesh,
+  # routingMode or protocol. Merge order therefore cannot matter — and it is
+  # worth knowing that flux merges inline values *over* valuesFrom, so an
+  # overlap here would silently let this file win.
+  #
+  # optional: true keeps a non-CLI install working. Applying
+  # `kubectl apply -k 2-addons/profiles/<profile>/flux` directly has no CLI to
+  # write the ConfigMap, and that path has always relied on the inline values
+  # alone.
+  valuesFrom:
+    - kind: ConfigMap
+      name: shoulders-cilium-cluster
+      valuesKey: values.yaml
+      optional: true
   values:
     image:
       pullPolicy: IfNotPresent
@@ -25,8 +50,33 @@ spec:
     prometheus:
       enabled: true
       serviceMonitor:
-        enabled: true
+        # Off, and deliberately so.
+        #
+        # The monitoring.coreos.com CRDs come from the prometheus-operator-crds
+        # HelmRelease in this same kustomization, so they may not exist when
+        # Cilium is installed — Cilium is installed by the CLI before Flux
+        # reconciles this kustomization, and the CRD release cannot satisfy
+        # that ordering. With serviceMonitor enabled, the chart's validation
+        # template fails outright:
+        #
+        #   execution error at (cilium/templates/validate.yaml:79:13):
+        #   Service Monitor requires monitoring.coreos.com/v1 CRDs
+        #
+        # It is transient rather than fatal — flux retries every interval and
+        # succeeds once prometheus-operator-crds lands — which is exactly why
+        # it went unnoticed. Setting trustCRDsExist would only move the failure
+        # to object creation. This matches what the CLI installs.
+        enabled: false
     dashboards:
+      # The base manifests ARE the medium profile, so this is medium's intent.
+      #
+      # This file is the single source of truth for Cilium's observability, and
+      # the per-profile patches in 2-addons/profiles/<profile>/helm-releases/
+      # override it. The CLI cannot set these: flux merges this file's inline
+      # values over the values the CLI publishes, so anything set here is final
+      # and a `small` cluster would otherwise get the hubble UI and the Cilium
+      # dashboards its profile deliberately omits. See R5 in
+      # docs/multi-cluster-target.md.
       enabled: true
       annotations:
         grafana_folder: Cilium

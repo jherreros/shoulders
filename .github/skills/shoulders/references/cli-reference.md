@@ -17,10 +17,13 @@ shoulders status                          # Show platform health
 shoulders status --wait                   # Poll until healthy
 shoulders cluster list                    # List clusters
 shoulders cluster use <name>              # Switch context
+shoulders --cluster <name> status         # Target a cluster in a topology
 shoulders update                          # Self-update the CLI
 ```
 
-Configuration supports `platform.profile: small|medium|large`. `medium` is the default. `small` is laptop-friendly and keeps the core IDP while omitting Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` before provisioning Kafka Event Streams or opening Policy Reporter.
+Configuration supports `platform.profile: small|medium|large`. `medium` is the default. `small` is laptop-friendly and keeps the core IDP while omitting Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` before provisioning Kafka Event Streams or opening Policy Reporter.
+
+A topology replaces `cluster:` with `clusters:`. Every command resolves one through `--cluster <name>`; `cluster use` writes back to the topology entry. See `docs/multi-cluster-target.md` for the design and `docs/multi-cluster-evidence.md` for the measurements.
 
 Flux reconciles from `platform.flux.source: git` by default, or `oci` for local iteration and airgap installs. On vind with no `ociRepository.url` configured, `up --local` and `sync` use an automatic in-cluster registry over plain HTTP. Every snapshot gets an immutable `local-<sha>-<timestamp>[-dirty]` tag. `shoulders start` re-pushes the persisted tag if registry storage was wiped, and reconciles CoreDNS forwarding against the machine's current nameservers.
 

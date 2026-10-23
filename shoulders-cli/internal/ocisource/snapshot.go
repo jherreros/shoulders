@@ -1,11 +1,20 @@
 // Package ocisource snapshots the local Shoulders addon manifests into an OCI
 // artifact that Flux reconciles from via an OCIRepository.
 //
-// Only the 2-addons subtree is packaged: every Flux Kustomization path lives
-// under 2-addons/, while the rest of the working tree (portal plugin,
-// CLI build output, .git) would bloat the artifact by orders of magnitude.
-// Tar entry names keep the 2-addons/ prefix so Kustomization paths
-// (./2-addons/...) resolve identically to a GitRepository source.
+// Only the manifest subtrees are packaged: the rest of the working tree (portal
+// plugin, CLI build output, .git) would bloat the artifact by orders of
+// magnitude. Tar entry names keep their repo-root-relative prefix, so
+// Kustomization paths (./2-addons/..., ./3-user-space/...) resolve identically
+// to a GitRepository source.
+//
+// It used to be 2-addons alone, on the assumption that every Kustomization path
+// lived there. User space does not: it is 3-user-space, and an artifact without
+// it makes flux report
+//
+//	kustomization path not found: stat /tmp/kustomization-.../3-user-space/workspaces
+//
+// on every reconcile — with the snapshot built successfully and nothing else
+// wrong.
 package ocisource
 
 import (
@@ -33,8 +42,15 @@ type Snapshot struct {
 	Tag     string
 }
 
-// AddonsDir is the only subtree packaged into the snapshot.
+// AddonsDir is the platform manifest tree. It is always packaged.
 const AddonsDir = "2-addons"
+
+// ManifestRoots are the repo-root-relative subtrees flux reconciles from.
+//
+// A root that does not exist is skipped: a staged (airgap) tree has only the
+// addons directory, and a repository that carries no user space is still a valid
+// repository.
+var ManifestRoots = []string{AddonsDir, "3-user-space"}
 
 // BuildSnapshot tars repoRoot/2-addons (including uncommitted and untracked
 // files) and derives an immutable artifact tag from the git HEAD, dirtiness,
@@ -55,7 +71,14 @@ func BuildSnapshotWithOverlay(repoRoot string, now time.Time, extra map[string][
 		return nil, fmt.Errorf("expected addon manifests at %s", addonsRoot)
 	}
 	sha, dirty := GitDescribe(repoRoot)
-	return buildSnapshot(addonsRoot, sha, dirty, now, "local", extra)
+	roots := make([]string, 0, len(ManifestRoots))
+	for _, root := range ManifestRoots {
+		path := filepath.Join(repoRoot, root)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			roots = append(roots, path)
+		}
+	}
+	return buildSnapshot(repoRoot, roots, sha, dirty, now, "local", extra)
 }
 
 // BuildStagedSnapshot snapshots an already-prepared 2-addons directory
@@ -66,18 +89,21 @@ func BuildStagedSnapshot(addonsDir, sha string, now time.Time, prefix string, ex
 	if info, err := os.Stat(addonsDir); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("expected staged addon manifests at %s", addonsDir)
 	}
-	return buildSnapshot(addonsDir, sha, true, now, prefix, extra)
+	return buildSnapshot(filepath.Dir(addonsDir), []string{addonsDir}, sha, true, now, prefix, extra)
 }
 
-func buildSnapshot(addonsDir, sha string, dirty bool, now time.Time, prefix string, extra map[string][]byte) (*Snapshot, error) {
-	payload, files, err := tarGzip(filepath.Dir(addonsDir), addonsDir, extra)
+func buildSnapshot(repoRoot string, roots []string, sha string, dirty bool, now time.Time, prefix string, extra map[string][]byte) (*Snapshot, error) {
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("no manifest roots to package")
+	}
+	payload, files, err := tarGzip(repoRoot, roots, extra)
 	if err != nil {
 		return nil, err
 	}
 	return &Snapshot{
 		Payload: payload,
 		Files:   files,
-		Root:    addonsDir,
+		Root:    roots[0],
 		SHA:     sha,
 		Dirty:   dirty,
 		Tag:     SnapshotTag(prefix, sha, dirty, now),
@@ -136,7 +162,7 @@ func sanitizeTagSegment(segment string) string {
 	return strings.Trim(builder.String(), ".-")
 }
 
-func tarGzip(repoRoot, addonsRoot string, extra map[string][]byte) ([]byte, int, error) {
+func tarGzip(repoRoot string, roots []string, extra map[string][]byte) ([]byte, int, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	// Zero the gzip header timestamp for reproducible output.
@@ -172,48 +198,52 @@ func tarGzip(repoRoot, addonsRoot string, extra map[string][]byte) ([]byte, int,
 		written[name] = true
 		return tarWriter.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: name, Mode: 0o755})
 	}
-	err := filepath.WalkDir(addonsRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(repoRoot, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
-			if entry.IsDir() {
-				return filepath.SkipDir
+	walk := func(root string) error {
+		return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
 			}
-			return nil
-		}
-		name := filepath.ToSlash(rel)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			if _, ok := extra[name]; ok {
+			rel, err := filepath.Rel(repoRoot, path)
+			if err != nil {
+				return err
+			}
+			if rel == "." {
 				return nil
 			}
-			if entry.IsDir() {
-				return writeDir(name)
+			if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
-			return nil
-		}
-		if content, ok := extra[name]; ok {
+			name := filepath.ToSlash(rel)
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				if _, ok := extra[name]; ok {
+					return nil
+				}
+				if entry.IsDir() {
+					return writeDir(name)
+				}
+				return nil
+			}
+			if content, ok := extra[name]; ok {
+				return writeFile(name, content, info.Mode())
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
 			return writeFile(name, content, info.Mode())
+		})
+	}
+	for _, root := range roots {
+		if err := walk(root); err != nil {
+			return nil, 0, fmt.Errorf("archive manifest root %s: %w", root, err)
 		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return writeFile(name, content, info.Mode())
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("archive addon manifests at %s: %w", addonsRoot, err)
 	}
 	// Overlay files that do not exist on disk, in sorted order for
 	// deterministic output. Parent dirs are implied; tar readers cope.

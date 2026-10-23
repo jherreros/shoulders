@@ -2,6 +2,7 @@ resources:
   - ../../../manifests/helm-releases
 
 patches:
+  - path: cilium.yaml
   - path: delete-alloy.yaml
   - path: delete-falco.yaml
   - path: delete-loki.yaml
@@ -10,5 +11,5 @@ patches:
   - path: delete-tempo.yaml
   - path: delete-trivy-operator-polr-adapter.yaml
   - path: delete-trivy-operator.yaml
-  - path: kube-prometheus-stack.yaml
+  - path: victoria-metrics-k8s-stack.yaml
   - path: kyverno.yaml

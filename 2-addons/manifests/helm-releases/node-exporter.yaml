@@ -1,0 +1,44 @@
+# The spoke's node metrics.
+#
+# The hub's VictoriaMetrics stack includes node-exporter, but a spoke has no
+# metrics backend of its own. Without this DaemonSet the hub would see the
+# spoke's objects through kube-state-metrics but not its nodes' CPU, memory,
+# filesystem, or network. The agent scrapes each node's host-network exporter
+# directly and pushes the series to the hub.
+#
+# The hub removes the whole release (workloadTierResources); its own
+# node-exporter remains part of the VictoriaMetrics stack.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: node-exporter
+  namespace: observability
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: prometheus-node-exporter
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      version: "4.59.0"
+  values:
+    fullnameOverride: node-exporter
+    # The DaemonSet binds 9100 on each node, and Alloy scrapes the node IPs
+    # directly. Keeping this explicit makes the addressing contract obvious.
+    hostNetwork: true
+    # A spoke has no Prometheus operator or monitoring CRDs. The node-exporter
+    # endpoint is scraped directly by the spoke's own Alloy agent.
+    prometheus:
+      monitor:
+        enabled: false
+    tolerations:
+      - operator: Exists
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi

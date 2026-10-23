@@ -18,5 +18,5 @@ shoulders portal
 printed admin credentials. Retrieve the admin password manually:
 
 ```bash
-kubectl get secret -n observability kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+kubectl get secret -n observability victoria-metrics-k8s-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
 ```

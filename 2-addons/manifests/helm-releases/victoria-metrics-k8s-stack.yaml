@@ -1,0 +1,126 @@
+# The hub's metrics stack.
+#
+# kube-prometheus-stack was replaced by the VictoriaMetrics Kubernetes stack:
+# the laptop target needs one metrics backend, one Grafana, and one alerting
+# path, and the reference implementation now uses VictoriaMetrics' single-node
+# TSDB instead of Prometheus. The public endpoint is still
+# `prometheus.<domain>`; only the backend behind it changed.
+#
+# Spokes push into vmsingle with the same `/api/v1/write` protocol they used
+# with Prometheus. The hub's own series are still unlabelled (empty `cluster`
+# means the hub), while every spoke's Alloy adds `cluster=<name>`.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoria-metrics-k8s-stack
+  namespace: observability
+spec:
+  dependsOn:
+    - name: dex
+      namespace: dex
+  interval: 5m
+  chart:
+    spec:
+      chart: victoria-metrics-k8s-stack
+      sourceRef:
+        kind: HelmRepository
+        name: victoriametrics
+        namespace: flux-system
+      version: "0.96.0"
+  values:
+    global:
+      clusterLabel: cluster
+    grafana:
+      assertNoLeakedSecrets: false
+      sidecar:
+        dashboards:
+          searchNamespace: ALL
+      grafana.ini:
+        server:
+          root_url: http://${SHOULDERS_GRAFANA_HOST} # NOSONAR: local gateway is HTTP-only
+        auth:
+          disable_login_form: false
+        auth.generic_oauth:
+          enabled: true
+          name: Dex
+          allow_sign_up: true
+          client_id: grafana
+          client_secret: grafana-dex-secret
+          scopes: openid email profile groups offline_access
+          auth_url: https://${SHOULDERS_DEX_HOST}/auth
+          token_url: http://dex.dex.svc.cluster.local:5556/token
+          api_url: http://dex.dex.svc.cluster.local:5556/userinfo
+          use_pkce: true
+          role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'"
+      datasources:
+        datasources.yaml:
+          apiVersion: 1
+          datasources:
+            - name: Loki
+              uid: loki
+              type: loki
+              url: http://loki.observability:3100 # NOSONAR: in-cluster service has no TLS endpoint
+              access: proxy
+              jsonData:
+                derivedFields:
+                  - datasourceUid: tempo
+                    matcherRegex: "traceID=(\\w+)"
+                    name: TraceID
+                    url: "$${__value.raw}"
+            - name: Tempo
+              uid: tempo
+              type: tempo
+              url: http://tempo.observability:3100 # NOSONAR: in-cluster service has no TLS endpoint
+              access: proxy
+              jsonData:
+                tracesToLogsV2:
+                  datasourceUid: "loki"
+                  tags: ["job", "instance", "pod", "namespace"]
+                tracesToMetrics:
+                  datasourceUid: "VictoriaMetrics"
+                  tags: [{ key: "service.name", value: "service" }, { key: "job" }]
+    vmsingle:
+      spec:
+        # VictoriaMetrics' minimum retention is 24h. The old small profile
+        # asked for 6h; the profile now asks for 24h. Single-node VMSingle has
+        # no retention.maxDiskSpaceUsageBytes flag (that is a vmstorage flag),
+        # so the disk budget comes from the PVC size plus
+        # -storage.minFreeDiskSpaceBytes.
+        retentionPeriod: ${SHOULDERS_METRICS_RETENTION}
+        storage:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+        extraArgs:
+          storage.minFreeDiskSpaceBytes: ${SHOULDERS_METRICS_MIN_FREE_DISK}
+    vmagent:
+      spec:
+        # Match the scrape cadence of the old Prometheus stack; the laptop
+        # target is not a high-frequency monitoring deployment.
+        scrapeInterval: 30s
+        # Do not add a cluster label to hub-local series. The topology's
+        # convention is empty cluster = hub; only spokes attach the label.
+        externalLabels: {}
+    vmalert:
+      spec:
+        evaluationInterval: 30s
+    # vind exposes the apiserver and kubelet, but not etcd, the controller
+    # manager, the scheduler, or kube-proxy. Disabling them avoids empty
+    # ServiceMonitors and false alerts; the evidence document records the
+    # limitation rather than pretending coverage.
+    kubeEtcd:
+      enabled: false
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+    kubeApiServer:
+      enabled: true
+    kubelet:
+      enabled: true
+    coreDns:
+      enabled: true

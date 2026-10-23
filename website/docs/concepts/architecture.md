@@ -8,6 +8,10 @@ Creates a Kubernetes cluster using **vind** (vCluster in Docker) for local devel
 Vind provides automatic LoadBalancer support, sleep/wake capability and pull-through
 image caching.
 
+`clusters:` can describe a hub-and-spoke topology: the hub runs the platform tier,
+spokes run the workload tier, and Cilium ClusterMesh connects them. The single
+`cluster:` form remains the monocluster hub case.
+
 ## 2. Addons Layer (`2-addons/`)
 
 Installs platform components using **FluxCD** for GitOps-based deployment. Flux
@@ -15,7 +19,7 @@ Kustomizations enforce install order: helm repositories → namespaces → helm 
 crossplane → gateway → dex → headlamp.
 
 - **Helm Repositories & Releases** — Cilium, Crossplane, CloudNativePG, Strimzi,
-  Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco,
+  Kyverno, VictoriaMetrics stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco,
   Policy Reporter.
 - **Crossplane Abstractions** — XRDs, Compositions and Functions defining the
   developer-facing API.

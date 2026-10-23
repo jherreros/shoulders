@@ -2,4 +2,5 @@ resources:
   - ../../../manifests/helm-releases
 
 patches:
-  - path: kube-prometheus-stack.yaml
+  - path: cilium.yaml
+  - path: victoria-metrics-k8s-stack.yaml

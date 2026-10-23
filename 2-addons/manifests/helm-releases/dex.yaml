@@ -40,6 +40,13 @@ spec:
           secret: headlamp-dex-secret
           redirectURIs:
             - http://${SHOULDERS_HEADLAMP_HOST}/oidc-callback
+            # Only the hub's own Headlamp.
+            #
+            # A spoke's Headlamp authenticates against this same issuer, but
+            # dex matches redirect URIs exactly — a wildcard is not a prefix
+            # match, and was measured rejecting every callback it should have
+            # matched. So each spoke gets its own client, registered with the
+            # hub at install time. See docs/multi-cluster-evidence.md §16.
 
       enablePasswordDB: true
 

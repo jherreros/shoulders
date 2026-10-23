@@ -35,11 +35,15 @@ If your agent has the Shoulders MCP server configured, you can use it as an alte
   "mcpServers": {
     "shoulders": {
       "command": "npx",
-      "args": ["github:jherreros/shoulders-mcp-server"]
+      "args": ["github:jherreros/shoulders-mcp-server"],
+      "env": { "SHOULDERS_CLUSTER": "spokea" }
     }
   }
 }
 ```
+
+Set `SHOULDERS_CLUSTER` to target a cluster in a topology; omit it for the
+monocluster default.
 
 ## When to Use
 

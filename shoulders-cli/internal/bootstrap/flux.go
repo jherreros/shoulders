@@ -52,22 +52,54 @@ type FluxSource struct {
 	OCIInsecure bool
 	PathPrefix  string
 	Profile     string
+
+	// WorkloadTier marks a cluster that runs the workload tier rather than
+	// the platform tier. It changes which kustomizations are created and
+	// which resources are removed from them.
+	WorkloadTier bool
+
+	// SopsAgeKey is the age identity flux uses to decrypt *.sops.yaml. Empty
+	// leaves decryption off: no Secret is created and no Kustomization asks
+	// for one, so a topology that does not use SOPS installs exactly as
+	// before.
+	SopsAgeKey []byte
 }
 
 // FluxSourceFromConfig builds the FluxSource for an install from CLI config.
-func FluxSourceFromConfig(cfg *config.Config, profile string) FluxSource {
+// FluxConfigSource is the subset of configuration FluxSource needs.
+//
+// Both *config.Config and *config.ResolvedCluster satisfy it, which lets a
+// per-cluster install use its own resolved Flux settings (path prefix, source)
+// without duplicating this mapping.
+type FluxConfigSource interface {
+	FluxSource() string
+	FluxRepositoryURL() string
+	FluxRepositoryBranch() string
+	FluxOCIURL() string
+	FluxOCITag() string
+	FluxOCIInsecure() bool
+	FluxPathPrefix() string
+}
+
+func FluxSourceFromConfig(cfg FluxConfigSource, profile string) FluxSource {
+	return FluxSourceFromConfigTier(cfg, profile, false)
+}
+
+// FluxSourceFromConfigTier is FluxSourceFromConfig with the tier.
+func FluxSourceFromConfigTier(cfg FluxConfigSource, profile string, workloadTier bool) FluxSource {
 	if cfg == nil {
 		return FluxSource{Kind: config.FluxSourceGit, PathPrefix: ".", Profile: profile}
 	}
 	src := FluxSource{
-		Kind:        cfg.FluxSource(),
-		GitURL:      cfg.FluxRepositoryURL(),
-		GitBranch:   cfg.FluxRepositoryBranch(),
-		OCIURL:      cfg.FluxOCIURL(),
-		OCITag:      cfg.FluxOCITag(),
-		OCIInsecure: cfg.FluxOCIInsecure(),
-		PathPrefix:  cfg.FluxPathPrefix(),
-		Profile:     profile,
+		Kind:         cfg.FluxSource(),
+		GitURL:       cfg.FluxRepositoryURL(),
+		GitBranch:    cfg.FluxRepositoryBranch(),
+		OCIURL:       cfg.FluxOCIURL(),
+		OCITag:       cfg.FluxOCITag(),
+		OCIInsecure:  cfg.FluxOCIInsecure(),
+		PathPrefix:   cfg.FluxPathPrefix(),
+		Profile:      profile,
+		WorkloadTier: workloadTier,
 	}
 	if src.Kind == "" {
 		src.Kind = config.FluxSourceGit
@@ -109,7 +141,32 @@ func EnsureFluxWithManifest(ctx context.Context, kubeconfigPath string, source F
 	if err := deleteInactiveFluxSource(ctx, kubeconfigPath, source); err != nil {
 		return err
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(source.PathPrefix, source.Profile, source.sourceRefKind()), "flux-system"); err != nil {
+	if err := applyFluxKustomizations(ctx, kubeconfigPath, source); err != nil {
+		return err
+	}
+	return nil
+}
+
+// applyFluxKustomizations applies the decryption material (when the source
+// carries an age identity) and then the tier's Kustomization set.
+//
+// Order matters: a Kustomization with `decryption.provider: sops` cannot
+// become Ready until the Secret it references exists.
+func applyFluxKustomizations(ctx context.Context, kubeconfigPath string, source FluxSource) error {
+	options := []fluxManifestOption(nil)
+	if len(source.SopsAgeKey) > 0 {
+		secret, err := sopsAgeSecretManifest(source.SopsAgeKey)
+		if err != nil {
+			return fmt.Errorf("render the sops age key: %w", err)
+		}
+		if err := kube.ApplyManifest(ctx, kubeconfigPath, secret, "flux-system"); err != nil {
+			return fmt.Errorf("apply the sops age key: %w", err)
+		}
+		options = append(options, withSopsDecryption())
+	}
+	manifest := fluxKustomizationsManifestForSource(
+		source.PathPrefix, source.Profile, source.sourceRefKind(), source.WorkloadTier, options...)
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, manifest, "flux-system"); err != nil {
 		return fmt.Errorf("apply flux config: %w", err)
 	}
 	return nil
@@ -126,7 +183,7 @@ func UninstallShouldersFlux(ctx context.Context, kubeconfigPath, pathPrefix stri
 
 	for _, profile := range []string{config.ProfileSmall, config.ProfileMedium, config.ProfileLarge} {
 		for _, sourceRefKind := range []string{"GitRepository", "OCIRepository"} {
-			if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind), "flux-system"); err != nil {
+			if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind, false), "flux-system"); err != nil {
 				return fmt.Errorf("delete flux kustomizations for profile %s source %s: %w", profile, sourceRefKind, err)
 			}
 		}
@@ -242,20 +299,35 @@ func ApplyFluxSourceAndKustomizations(ctx context.Context, kubeconfigPath string
 	if err := deleteInactiveFluxSource(ctx, kubeconfigPath, source); err != nil {
 		return err
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifestForSource(source.PathPrefix, source.Profile, source.sourceRefKind()), "flux-system"); err != nil {
-		return fmt.Errorf("apply flux config: %w", err)
-	}
-	return nil
+	return applyFluxKustomizations(ctx, kubeconfigPath, source)
 }
 
 func fluxKustomizationsManifest(pathPrefix, profile string) []byte {
-	return fluxKustomizationsManifestForSource(pathPrefix, profile, "GitRepository")
+	return fluxKustomizationsManifestForSource(pathPrefix, profile, "GitRepository", false)
 }
 
-func fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind string) []byte {
-	items := fluxKustomizationsForProfile(pathPrefix, profile)
+// fluxManifestOptions are the render-time switches that are not part of the
+// cluster's identity. Kept as options so the many call sites that only care
+// about the tier do not have to pass them.
+type fluxManifestOptions struct {
+	decrypt bool
+}
+
+type fluxManifestOption func(*fluxManifestOptions)
+
+// withSopsDecryption asks flux to decrypt *.sops.yaml with the sops-age Secret.
+func withSopsDecryption() fluxManifestOption {
+	return func(options *fluxManifestOptions) { options.decrypt = true }
+}
+
+func fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind string, workloadTier bool, opts ...fluxManifestOption) []byte {
+	items := fluxKustomizationsForCluster(pathPrefix, profile, workloadTier)
 	if sourceRefKind == "" {
 		sourceRefKind = "GitRepository"
+	}
+	options := fluxManifestOptions{}
+	for _, opt := range opts {
+		opt(&options)
 	}
 
 	var builder strings.Builder
@@ -272,6 +344,12 @@ func fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind stri
 		builder.WriteString("  interval: 10m\n")
 		fmt.Fprintf(&builder, "  path: %s\n", item.Path)
 		builder.WriteString("  prune: true\n")
+		if options.decrypt {
+			builder.WriteString("  decryption:\n")
+			builder.WriteString("    provider: sops\n")
+			builder.WriteString("    secretRef:\n")
+			builder.WriteString("      name: sops-age\n")
+		}
 		if item.Wait {
 			builder.WriteString("  wait: true\n")
 		}
@@ -288,6 +366,23 @@ func fluxKustomizationsManifestForSource(pathPrefix, profile, sourceRefKind stri
 			builder.WriteString("  dependsOn:\n")
 			for _, dependency := range item.DependsOn {
 				fmt.Fprintf(&builder, "    - name: %s\n", dependency)
+			}
+		}
+		if len(item.Patches) > 0 {
+			builder.WriteString("  patches:\n")
+			for _, patch := range item.Patches {
+				target, _ := patch.(map[string]interface{})["target"].(map[string]interface{})
+				body, _ := patch.(map[string]interface{})["patch"].(string)
+				builder.WriteString("    - target:\n")
+				fmt.Fprintf(&builder, "        kind: %s\n", target["kind"])
+				fmt.Fprintf(&builder, "        name: %s\n", target["name"])
+				if namespace, ok := target["namespace"]; ok && namespace != "" {
+					fmt.Fprintf(&builder, "        namespace: %s\n", namespace)
+				}
+				builder.WriteString("      patch: |\n")
+				for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
+					fmt.Fprintf(&builder, "        %s\n", line)
+				}
 			}
 		}
 	}
@@ -318,12 +413,106 @@ func fluxKustomizationsForProfile(pathPrefix, profile string) []fluxKustomizatio
 		items[4].Path = path("2-addons/profiles/small/helm-releases")
 		items[5].Path = path("2-addons/profiles/small/crossplane")
 		items[6].Path = path("2-addons/profiles/small/gateway")
-		return []fluxKustomization{items[0], items[1], items[2], items[3], items[4], items[5], items[6]}
+		items = []fluxKustomization{items[0], items[1], items[2], items[3], items[4], items[5], items[6]}
 	case config.ProfileLarge:
 		items[4].Path = path("2-addons/profiles/large/helm-releases")
 	}
 
+	// User space is appended after the profile switch, not part of it: every
+	// profile delivers the same tenant manifests, and the small profile rebuilds
+	// the list above by index.
+	//
+	// Two Kustomizations, in this order, because a Workspace owns its namespace:
+	// the tenant's namespaced XRs cannot be applied until the Workspace that
+	// creates that namespace is ready.
+	items = append(items,
+		fluxKustomization{
+			Name:      "user-space-workspaces",
+			Path:      path("3-user-space/workspaces"),
+			Wait:      true,
+			DependsOn: []string{"crossplane", "helm-releases"},
+		},
+		fluxKustomization{
+			Name:       "user-space-apps",
+			Path:       path("3-user-space/team-a"),
+			Substitute: true,
+			DependsOn:  []string{"user-space-workspaces"},
+		},
+	)
+
 	return items
+}
+
+// fluxKustomizationsForCluster is the kustomization set a cluster reconciles.
+//
+// A workload-tier cluster does not create the kustomizations that exist only
+// for the platform tier. The resources that live in the shared kustomizations
+// are removed by the delete patches SetClusterTier applies, which is a
+// separate step because it has to happen after flux has created the
+// kustomizations.
+func fluxKustomizationsForCluster(pathPrefix, profile string, workloadTier bool) []fluxKustomization {
+	items := fluxKustomizationsForProfile(pathPrefix, profile)
+	if !workloadTier {
+		// The mirror image of the loop below: the hub removes what exists only
+		// for the workload tier.
+		for i := range items {
+			if resources, ok := workloadTierResources[items[i].Name]; ok {
+				items[i].Patches = append(items[i].Patches, tierDeletePatches(resources)...)
+			}
+		}
+		return items
+	}
+	kept := make([]fluxKustomization, 0, len(items))
+	removed := map[string]bool{}
+	for _, item := range items {
+		if isPlatformTierKustomization(item.Name) {
+			removed[item.Name] = true
+			continue
+		}
+		if resources, ok := platformTierResources[item.Name]; ok {
+			item.Patches = tierDeletePatches(resources)
+		}
+		if patches, ok := workloadTierJSONPatches[item.Name]; ok {
+			item.Patches = append(item.Patches, tierJSONPatches(patches)...)
+		}
+		if item.Name == "helm-releases" {
+			item.Patches = append(item.Patches, tierDependencyPatches(workloadTierReleaseDependencies)...)
+			item.Patches = append(item.Patches, tierValuePatches(workloadTierValueOverrides)...)
+		}
+		kept = append(kept, item)
+	}
+
+	// Drop dependencies on the kustomizations that were removed. A dependency
+	// on a kustomization that does not exist keeps the dependent one stuck:
+	//
+	//   dependency 'flux-system/headlamp' not found
+	//
+	// which blocks the whole tier, not just the dependent kustomization.
+	for i := range kept {
+		if len(removed) == 0 || len(kept[i].DependsOn) == 0 {
+			continue
+		}
+		dependencies := make([]string, 0, len(kept[i].DependsOn))
+		for _, dependency := range kept[i].DependsOn {
+			if removed[dependency] {
+				continue
+			}
+			dependencies = append(dependencies, dependency)
+		}
+		kept[i].DependsOn = dependencies
+	}
+	return kept
+}
+
+// isPlatformTierKustomization reports whether a flux kustomization exists only
+// for the platform tier.
+func isPlatformTierKustomization(name string) bool {
+	for _, tier := range platformTierKustomizations {
+		if tier == name {
+			return true
+		}
+	}
+	return false
 }
 
 func fluxRepoPath(prefix, relativePath string) string {
@@ -344,33 +533,52 @@ type fluxKustomization struct {
 	DependsOn  []string
 	Wait       bool
 	Substitute bool
+
+	// Patches are applied by flux to the built manifests. They carry the tier
+	// exclusions: a workload-tier cluster removes the platform tier from the
+	// shared kustomizations.
+	//
+	// They are part of the object the CLI applies, not a patch applied
+	// afterwards, so flux cannot reconcile the platform tier in the window
+	// between creating the Kustomization and patching it.
+	Patches []interface{}
 }
 
 func fluxPlatformConfigManifest(profile string, publicConfig PublicDomainConfig) []byte {
 	profileSpec := config.ProfileSpecFor(profile)
 	values := map[string]string{
-		"SHOULDERS_DEX_HOST":                  publicConfig.DexHost,
-		"SHOULDERS_GRAFANA_HOST":              publicConfig.GrafanaHost,
-		"SHOULDERS_HEADLAMP_HOST":             publicConfig.HeadlampHost,
-		"SHOULDERS_REPORTER_HOST":             publicConfig.ReporterHost,
-		"SHOULDERS_PROMETHEUS_HOST":           publicConfig.PrometheusHost,
-		"SHOULDERS_ALERTMANAGER_HOST":         publicConfig.AlertmanagerHost,
-		"SHOULDERS_HUBBLE_HOST":               publicConfig.HubbleHost,
-		"SHOULDERS_PROFILE":                   profileSpec.Name,
-		"SHOULDERS_POSTGRES_INSTANCES":        fmt.Sprintf("%d", profileSpec.PostgresInstances),
-		"SHOULDERS_KAFKA_REPLICAS":            fmt.Sprintf("%d", profileSpec.KafkaReplicas),
-		"SHOULDERS_KAFKA_MIN_ISR":             fmt.Sprintf("%d", profileSpec.KafkaMinISR),
-		"SHOULDERS_KAFKA_STORAGE":             profileSpec.KafkaStorage,
-		"SHOULDERS_PROMETHEUS_RETENTION":      profileSpec.PrometheusRetention,
-		"SHOULDERS_PROMETHEUS_RETENTION_SIZE": profileSpec.PrometheusSize,
-		"SHOULDERS_DEX_TLS_CERT_B64":          base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CertPEM)),
-		"SHOULDERS_DEX_TLS_KEY_B64":           base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.KeyPEM)),
-		"SHOULDERS_DEX_CA_CERT_B64":           base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CAPEM)),
+		"SHOULDERS_DEX_HOST":               publicConfig.DexHost,
+		"SHOULDERS_GRAFANA_HOST":           publicConfig.GrafanaHost,
+		"SHOULDERS_HEADLAMP_HOST":          publicConfig.HeadlampHost,
+		"SHOULDERS_HEADLAMP_CALLBACK_URL":  publicConfig.HeadlampCallbackURL,
+		"SHOULDERS_HEADLAMP_CLIENT_ID":     publicConfig.HeadlampClientID,
+		"SHOULDERS_HEADLAMP_CLIENT_SECRET": publicConfig.HeadlampClientSecret,
+		"SHOULDERS_WORKLOAD_DOMAIN":        publicConfig.WorkloadDomain,
+		"SHOULDERS_CLUSTER_NAME":           publicConfig.ClusterName,
+		"SHOULDERS_REPORTER_HOST":          publicConfig.ReporterHost,
+		"SHOULDERS_PROMETHEUS_HOST":        publicConfig.PrometheusHost,
+		"SHOULDERS_ALERTMANAGER_HOST":      publicConfig.AlertmanagerHost,
+		"SHOULDERS_HUBBLE_HOST":            publicConfig.HubbleHost,
+		"SHOULDERS_PROFILE":                profileSpec.Name,
+		"SHOULDERS_POSTGRES_INSTANCES":     fmt.Sprintf("%d", profileSpec.PostgresInstances),
+		"SHOULDERS_KAFKA_REPLICAS":         fmt.Sprintf("%d", profileSpec.KafkaReplicas),
+		"SHOULDERS_KAFKA_MIN_ISR":          fmt.Sprintf("%d", profileSpec.KafkaMinISR),
+		"SHOULDERS_KAFKA_STORAGE":          profileSpec.KafkaStorage,
+		"SHOULDERS_METRICS_RETENTION":      profileSpec.MetricsRetention,
+		"SHOULDERS_METRICS_MIN_FREE_DISK":  profileSpec.MetricsMinFreeDisk,
+		"SHOULDERS_DEX_TLS_CERT_B64":       base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CertPEM)),
+		"SHOULDERS_DEX_TLS_KEY_B64":        base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.KeyPEM)),
+		"SHOULDERS_DEX_CA_CERT_B64":        base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CAPEM)),
 	}
 	keys := []string{
 		"SHOULDERS_DEX_HOST",
 		"SHOULDERS_GRAFANA_HOST",
 		"SHOULDERS_HEADLAMP_HOST",
+		"SHOULDERS_HEADLAMP_CALLBACK_URL",
+		"SHOULDERS_HEADLAMP_CLIENT_ID",
+		"SHOULDERS_HEADLAMP_CLIENT_SECRET",
+		"SHOULDERS_WORKLOAD_DOMAIN",
+		"SHOULDERS_CLUSTER_NAME",
 		"SHOULDERS_REPORTER_HOST",
 		"SHOULDERS_PROMETHEUS_HOST",
 		"SHOULDERS_ALERTMANAGER_HOST",
@@ -380,8 +588,8 @@ func fluxPlatformConfigManifest(profile string, publicConfig PublicDomainConfig)
 		"SHOULDERS_KAFKA_REPLICAS",
 		"SHOULDERS_KAFKA_MIN_ISR",
 		"SHOULDERS_KAFKA_STORAGE",
-		"SHOULDERS_PROMETHEUS_RETENTION",
-		"SHOULDERS_PROMETHEUS_RETENTION_SIZE",
+		"SHOULDERS_METRICS_RETENTION",
+		"SHOULDERS_METRICS_MIN_FREE_DISK",
 		"SHOULDERS_DEX_TLS_CERT_B64",
 		"SHOULDERS_DEX_TLS_KEY_B64",
 		"SHOULDERS_DEX_CA_CERT_B64",
@@ -407,7 +615,7 @@ func waitForFluxKustomizationsDeleted(ctx context.Context, kubeconfigPath string
 	}
 
 	return wait.PollUntilContextTimeout(ctx, 2*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		for _, name := range []string{"helm-repositories", "namespaces", "crds", "helm-releases", "crossplane", "gateway", "policy-reporter", "trivy-dashboard", "headlamp"} {
+		for _, name := range []string{"helm-repositories", "namespaces", "crds", "helm-releases", "crossplane", "gateway", "policy-reporter", "trivy-dashboard", "headlamp", "user-space-workspaces", "user-space-apps"} {
 			if _, err := client.Resource(fluxKustomizationGVR).Namespace("flux-system").Get(ctx, name, metav1.GetOptions{}); err == nil {
 				return false, nil
 			}

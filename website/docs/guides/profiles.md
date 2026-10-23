@@ -8,9 +8,10 @@
 | `medium` | Default local platform | control plane + 2 workers | Yes | Trivy, Falco, Policy Reporter |
 | `large` | Full local platform | control plane + 3 workers | Yes | Trivy, Falco, Policy Reporter |
 
-`small` keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane,
-Kyverno admission, CNPG and Garage, but omits Loki/Tempo/Alloy, Hubble UI, Trivy,
-Falco and Policy Reporter.
+`small` keeps the core IDP, basic Grafana/VictoriaMetrics, Dex, Headlamp, Crossplane,
+Kyverno admission, CNPG and Garage, but omits Loki/Tempo, the log-shipping
+Alloy (the workload tier's metrics-only `alloy-agent` remains), Hubble UI,
+Trivy, Falco and Policy Reporter.
 
 ## Minimum hardware
 
@@ -21,7 +22,7 @@ vind clusters share the Docker Desktop VM, so profile weight shows up as node
 `DiskPressure`, evictions and webhook timeouts — not just slowness. Measured
 reference (Apple Silicon laptop, Docker Desktop 11 CPUs):
 
-- `small`: fully healthy — 37/37 pods, Flux/Crossplane/Gateway green. A full
+- `small`: fully healthy — 40/40 running pods (41 total with the completed Garage layout job) after the VictoriaMetrics migration, Flux/Crossplane/Gateway green. A full
   Bank of Anthos (9 workloads + 2×CNPG) fits comfortably on the single worker.
 - `medium`: never converged on an 11 CPU / ~12 GiB VM — `DiskPressure` on all
   nodes, mass evictions, cascading Kyverno webhook timeouts. The platform logic
@@ -36,7 +37,7 @@ Guidance:
 |---|---|---|---|---|
 | `small` | ≥ 8 | 8–12 GiB | ~25 GiB (VM disk + images + spare bundle) | Laptops |
 | `medium` | ≥ 8 | ≥ 16 GiB | ~40 GiB | Devserver or CI runners |
-| `large` | ≥ 8 | 32 GiB | 60+ GiB | Devservers only (week-long Prometheus retention) |
+| `large` | ≥ 8 | 32 GiB | 60+ GiB | Devservers only (week-long VictoriaMetrics retention) |
 
 `shoulders up` pre-flights host ports `80`/`443` and Docker disk headroom, but
 treat a red `medium` `status` on a laptop as a resource problem first: check

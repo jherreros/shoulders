@@ -11,5 +11,5 @@ spec:
     - ${SHOULDERS_ALERTMANAGER_HOST}
   rules:
     - backendRefs:
-        - name: kube-prometheus-stack-alertmanager
+        - name: vmalertmanager-victoria-metrics-k8s-stack
           port: 9093

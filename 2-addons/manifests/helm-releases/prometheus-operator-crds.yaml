@@ -1,0 +1,29 @@
+# The Prometheus-operator CRDs are kept even though the Prometheus stack was
+# removed. They are the compatibility surface for charts that still create
+# ServiceMonitor, PodMonitor, or PrometheusRule objects (CNPG does this on the
+# hub). The VictoriaMetrics operator converts those objects into VM scrape
+# configs and rules; without the CRDs the original charts fail to install.
+#
+# This release contains CRDs only. It is platform-tier: a spoke has no metrics
+# backend and disables the charts' monitoring objects, so it removes this
+# release.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: prometheus-operator-crds
+  namespace: observability
+spec:
+  interval: 5m
+  # The chart's payload is CRDs under crds/. Flux's default is Create, but
+  # being explicit keeps a cold install and a re-run behaving the same when
+  # a CRD already exists from an earlier release.
+  install:
+    crds: CreateReplace
+  chart:
+    spec:
+      chart: prometheus-operator-crds
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      version: "32.0.1"

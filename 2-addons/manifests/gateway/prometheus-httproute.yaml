@@ -11,5 +11,5 @@ spec:
     - ${SHOULDERS_PROMETHEUS_HOST}
   rules:
     - backendRefs:
-        - name: kube-prometheus-stack-prometheus
-          port: 9090
+        - name: vmsingle-victoria-metrics-k8s-stack
+          port: 8428

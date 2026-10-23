@@ -197,6 +197,9 @@ spec:
                   shoulders.io/garage-bucket-provisioner: {{ $stateStoreName | quote }}
               egress:
                 - toEndpoints:
+                    # Garage runs in this cluster (the platform tier does not
+                    # exclude it), so the provisioner must reach the local
+                    # Garage only. Cilium 1.19+ scopes this locally by default.
                     - matchLabels:
                         k8s:io.kubernetes.pod.namespace: garage
                 - toEntities:

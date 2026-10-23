@@ -16,8 +16,20 @@ const (
 	FluxSourceGit = "git"
 	FluxSourceOCI = "oci"
 
-	DefaultClusterName      = "shoulders"
-	DefaultCiliumVersion    = "1.19.2"
+	DefaultClusterName = "shoulders"
+	// DefaultCiliumVersion is the version the CLI bootstraps Cilium with.
+	//
+	// It is kept equal to the version pinned in
+	// 2-addons/manifests/helm-releases/cilium.yaml on purpose. Cilium is
+	// bootstrapped by the CLI because Flux cannot reconcile anything until the
+	// CNI is up, and then *adopted* by Flux from that same HelmRelease. That
+	// hand-off means the CLI's version is the starting point and git is the
+	// destination: if the two differ, every install silently upgrades within one
+	// Flux sync interval, which is a confusing way to discover a version bump.
+	//
+	// Renovate owns the git copy, so this constant must be moved with it.
+	// TestDefaultCiliumVersionMatchesGitOpsPin fails when they drift.
+	DefaultCiliumVersion    = "1.20.2"
 	DefaultFluxRepoURL      = "https://github.com/jherreros/shoulders.git"
 	DefaultFluxBranch       = "main"
 	DefaultPlatformProfile  = ProfileMedium
@@ -34,6 +46,14 @@ type Config struct {
 	CurrentWorkspace string         `yaml:"current_workspace,omitempty" json:"current_workspace,omitempty"`
 	Cluster          ClusterConfig  `yaml:"cluster,omitempty" json:"cluster,omitempty"`
 	Platform         PlatformConfig `yaml:"platform,omitempty" json:"platform,omitempty"`
+
+	// Clusters is the topology: one entry per cluster, each overriding only
+	// what differs from the shared `platform:` block.
+	//
+	// When empty, the legacy single `cluster:` block is desugared into a
+	// one-cluster topology with role `hub`, so monocluster config files keep
+	// working unchanged (decision D2). See topology.go.
+	Clusters []ClusterEntry `yaml:"clusters,omitempty" json:"clusters,omitempty"`
 }
 
 type ClusterConfig struct {
@@ -48,6 +68,8 @@ type PlatformConfig struct {
 	Domain  string       `yaml:"domain,omitempty" json:"domain,omitempty"`
 	Cilium  CiliumConfig `yaml:"cilium,omitempty" json:"cilium,omitempty"`
 	Flux    FluxConfig   `yaml:"flux,omitempty" json:"flux,omitempty"`
+	Mesh    MeshConfig   `yaml:"mesh,omitempty" json:"mesh,omitempty"`
+	Sops    SopsConfig   `yaml:"sops,omitempty" json:"sops,omitempty"`
 }
 
 type CiliumConfig struct {
@@ -68,9 +90,11 @@ type GitRepositoryConfig struct {
 }
 
 type OCIRepositoryConfig struct {
-	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
-	Tag      string `yaml:"tag,omitempty" json:"tag,omitempty"`
-	Insecure bool   `yaml:"insecure,omitempty" json:"insecure,omitempty"`
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	Tag string `yaml:"tag,omitempty" json:"tag,omitempty"`
+	// Insecure is a pointer so a per-cluster overlay can distinguish "not set,
+	// inherit from platform" from an explicit false.
+	Insecure *bool `yaml:"insecure,omitempty" json:"insecure,omitempty"`
 }
 
 func DefaultConfig() *Config {
@@ -143,6 +167,12 @@ func (cfg *Config) Validate() error {
 		if strings.TrimSpace(cfg.Platform.Flux.OCIRepository.Tag) == "" {
 			return fmt.Errorf("platform.flux.ociRepository.tag is required when platform.flux.source is %q (use an immutable tag, not latest)", FluxSourceOCI)
 		}
+	}
+	// Validate the topology so a malformed `clusters:` list is rejected at load
+	// time rather than surfacing later as a confusing install failure. This
+	// also covers the desugared single-cluster case.
+	if _, err := cfg.Topology(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -222,10 +252,10 @@ func (cfg *Config) FluxOCITag() string {
 }
 
 func (cfg *Config) FluxOCIInsecure() bool {
-	if cfg == nil {
+	if cfg == nil || cfg.Platform.Flux.OCIRepository.Insecure == nil {
 		return false
 	}
-	return cfg.Platform.Flux.OCIRepository.Insecure
+	return *cfg.Platform.Flux.OCIRepository.Insecure
 }
 
 func (cfg *Config) FluxRepositoryBranch() string {

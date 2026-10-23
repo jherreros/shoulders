@@ -21,7 +21,7 @@ var portalCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		const portalPath = "/c/main/shoulders"
 		headlampOIDCURL := currentConfig.HeadlampURL()
-		headlampHost := currentConfig.HeadlampHost()
+		headlampHost := targetCluster.HeadlampHost()
 
 		if isHostPortReachable(headlampHost, "80", 1500*time.Millisecond) {
 			portalURL := headlampOIDCURL + portalPath

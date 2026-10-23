@@ -15,7 +15,7 @@ maintainers and contributors of all the open-source tools it composes.
 - **Workloads** — background workers, one-shot Jobs and CronJobs.
 - **State Stores** — PostgreSQL (CloudNativePG), Redis and Garage S3 buckets with independent toggles.
 - **Event Streams** — full Kafka clusters and topics via Strimzi.
-- **Observability** — LGTM stack (Loki, Grafana, Tempo, Prometheus) pre-configured.
+- **Observability** — LGTM stack (Loki, Grafana, Tempo, VictoriaMetrics) pre-configured.
 - **Security** — Kyverno, Trivy Operator, Falco and Policy Reporter.
 - **Three interfaces** — CLI, Headlamp developer portal, and MCP server for AI assistants.
 

@@ -19,7 +19,7 @@ Shoulders allows developers to declaratively provision and manage:
 - **Workloads** — Background workers, one-shot Jobs, and CronJobs for non-HTTP work.
 - **State Stores** — PostgreSQL databases (via CloudNativePG), Redis caches, and Garage S3 buckets with independent toggles.
 - **Event Streams** — Full Kafka clusters and multiple topics (via Strimzi).
-- **Observability** — Built-in LGTM stack (Loki, Grafana, Tempo, Prometheus) for comprehensive monitoring.
+- **Observability** — Built-in LGTM stack (Loki, Grafana, Tempo, VictoriaMetrics) for comprehensive monitoring.
 
 All resources are defined as Crossplane Composite Resources and managed through Flux GitOps, a CLI, a developer portal, or an MCP server.
 
@@ -33,7 +33,7 @@ Creates a Kubernetes cluster using **vind** (vCluster in Docker) for local devel
 ### 2. Addons Layer (`2-addons/`)
 Installs platform components using **FluxCD** for GitOps-based deployment. Flux Kustomizations enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway → dex → headlamp.
 
-- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco, Policy Reporter).
+- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, VictoriaMetrics stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco, Policy Reporter).
 - **Crossplane Abstractions** — XRDs, Compositions, and Functions that define the developer-facing API.
 - **Gateway** — Gateway API CRDs and a Cilium-backed `Gateway` resource for HTTP routing.
 - **Headlamp** — Developer portal with the Shoulders plugin loaded via `pluginsManager`.
@@ -150,17 +150,25 @@ Current config fields:
 ```yaml
 current_workspace: ""
 
+# Single-cluster form. Still supported; desugars into a one-entry `clusters`
+# list with role `hub`.
 cluster:
   provider: vind          # vind | existing
   name: shoulders
   kubeconfig: ""
   context: ""
 
+# Shared platform settings. Every cluster inherits these and overrides only
+# what differs.
 platform:
-  profile: medium        # small | medium | large
+  profile: medium         # small | medium | large
   cilium:
     enabled: true
-    version: "1.19.2"
+    version: "1.20.2"
+  mesh:
+    enabled: false        # experimental: shared network + per-cluster pod CIDR
+    network: ""           # shared Docker network name (default shoulders-mesh)
+    podCIDRBase: 0        # second octet for per-cluster pod CIDRs (default 16)
   flux:
     source: git             # git | oci
     gitRepository:
@@ -171,15 +179,104 @@ platform:
       tag: ""               # immutable artifact tag, not latest (required when source: oci)
       insecure: false       # true for plain-HTTP registries (e.g. the automatic vind local registry)
     pathPrefix: "."
+
+# Topology. Omit entirely for monocluster.
+clusters:
+  - name: hub
+    role: hub                # hub | spoke | edge
+    domain: hub.127.0.0.1.sslip.io
+    ports:                   # host bindings; only one vind cluster may claim a port
+      http: 80
+      https: 443
+  - name: spoke-a
+    role: spoke
+    ports:
+      http: 8080
+      https: 8443
+    flux:
+      pathPrefix: "clusters/spoke-a"  # optional; must exist in the source
 ```
 
 Notes:
 - `provider: vind` preserves the current default behavior.
 - `provider: existing` skips cluster creation and targets the configured kube context.
-- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/VictoriaMetrics, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo, the log-shipping Alloy (the workload tier's metrics-only `alloy-agent` stays), Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer VictoriaMetrics retention.
 - Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
 - The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
+- **Cilium is bootstrapped by the CLI, then adopted by Flux.** The CLI installs
+  it because Flux cannot reconcile anything until a CNI is running;
+  `2-addons/manifests/helm-releases/cilium.yaml` is a `HelmRelease` named to
+  match that release exactly, so `helm-controller` takes it over rather than
+  creating a second one. Values split by **ownership**, not precedence: static
+  values live in git, while the ones discovered at install time and differing per
+  cluster (`k8sServiceHost`/`Port`, and `cluster.name`/`id` plus the
+  `clustermesh` peer list for a mesh) are published by the CLI to the
+  `shoulders-cilium-cluster` ConfigMap and pulled in via `valuesFrom`. The key
+  sets are deliberately disjoint, because Flux merges inline values *over*
+  `valuesFrom` — an overlap would let git silently override what the CLI
+  discovered. `optional: true` keeps the non-CLI `kubectl apply -k` path working.
+- `clusters:` describes the topology. Each entry overlays the shared `platform:`
+  block and states only what differs. Omitting it entirely keeps today's
+  monocluster behaviour: the single `cluster:` block desugars into a one-entry
+  topology with role `hub`, and saving does not rewrite the file.
+- `role` is a **label, not behaviour** — with one exception: it selects the
+  cluster's **tier**. The hub runs the platform tier (Dex, observability,
+  policy, the control-plane surfaces); a spoke runs the workload tier (the
+  workload compositions and their local stateful dependencies). Host ports, mesh
+  enablement and profile stay explicit configuration. A topology must declare
+  exactly one `hub`.
+- **The hub owns the domain.** `platform.domain` decides the platform
+  hostnames — `dex.<domain>`, `grafana.<domain>` — and only the hub serves
+  them, so a spoke declares no domain at all. In a topology the hub must
+  declare one (on a laptop, `domain: hub.127.0.0.1.sslip.io` works), and two
+  clusters declaring the same domain is rejected.
+- A topology install looks like this:
+
+  ```yaml
+  platform:
+    profile: small
+    mesh:
+      enabled: true
+  clusters:
+    - name: hub
+      role: hub
+      domain: hub.127.0.0.1.sslip.io
+    - name: spokea
+      role: spoke
+      ports: { http: 8080, https: 8443 }
+  ```
+
+  `shoulders up` installs the hub first and then each spoke, and
+  `shoulders down` removes them all again.
+- Each cluster declares its own `ports:` because only one `vind` cluster can bind
+  a given host port. Validation rejects two `vind` clusters claiming the same
+  port; `provider: existing` clusters bind nothing and may share.
+- `platform.mesh` is **experimental and off by default**. When enabled, every
+  cluster joins one shared Docker network and receives a distinct /16 pod CIDR
+  derived from its name, and Cilium is installed as a ClusterMesh participant.
+  Both are prerequisites that vCluster's defaults violate, and the Cilium values
+  are not chart defaults — see `docs/multi-cluster-evidence.md` §12 for what was
+  measured and why. `docs/multi-cluster-target.md` records the full topology
+  design and which parts are implemented. `platform.mesh.encryption: wireguard`
+  turns on WireGuard for pod-to-pod traffic and must be the same on every
+  cluster; node encryption is deliberately off because Cilium's control-plane
+  opt-out otherwise breaks the ClusterMesh and telemetry host paths on a cold
+  install (evidence §20). Network policy is cluster-local by default; a rule
+  that must reach another cluster names it with
+  `io.cilium.k8s.policy.cluster`.
+- `shoulders up` on a topology installs **every** cluster, hub first. The hub is
+  installed first because it mints the Cilium trust anchor that every peer must
+  be seeded with before its own Cilium install. Pass `--cluster <name>` or
+  `--name <name>` to install exactly one — worth knowing, because in a topology a
+  bare `up` is a bulk operation.
+- Every command that talks to a cluster resolves one through the global
+  `--cluster` flag, so a topology never needs an ambient kube context. The MCP
+  server takes the same selector as `SHOULDERS_CLUSTER`.
+- Only the hub declares the domain (`platform.domain`, or `domain` on the hub
+  entry); a spoke declares none and serves workload hostnames qualified by its
+  own name (`<app>.<cluster>.<domain>`). Two clusters declaring the same domain
+  are rejected.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
 - `platform.flux.source: oci` with `ociRepository.url`/`tag` reconciles the same Kustomization paths from a pre-pushed OCI artifact (same directory layout, immutable tag) instead of git. Useful for local dirty-tree iteration and airgap installs once the snapshot push (Phase 1) and bundle vendoring (Phase 2) land.
 
@@ -225,7 +322,7 @@ Known limitations (documented divergences, not bugs):
 - Trivy vulnerability databases download at runtime; scanning degrades gracefully offline.
 - `provider: existing` + `--bundle` is rejected: images must be pre-mirrored by other tooling (the bundle's image list is the manifest to mirror).
 - vind freezes cluster DNS state at creation; `shoulders start` reconciles CoreDNS forwarding against the machine's current nameservers on every boot.
-- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, `platform.flux.source`, `platform.flux.ociRepository.url`, `platform.flux.ociRepository.tag`, and `platform.flux.pathPrefix`.
+- `--set` supports `current_workspace`, `cluster.provider`, `cluster.name`, `cluster.kubeconfig`, `cluster.context`, `platform.profile`, `platform.domain`, `platform.cilium.enabled`, `platform.cilium.version`, `platform.flux.gitRepository.url`, `platform.flux.gitRepository.branch`, `platform.flux.source`, `platform.flux.ociRepository.url`, `platform.flux.ociRepository.tag`, `platform.flux.ociRepository.insecure`, and `platform.flux.pathPrefix`.
 - On `provider: existing`, `shoulders down` removes the Flux-managed Shoulders platform from the current cluster. If `platform.cilium.enabled: true`, it also uninstalls the `cilium` Helm release from `kube-system`.
 
 Profile summary:
@@ -292,7 +389,7 @@ shoulders portal                        # Open Headlamp portal (prefers the conf
 shoulders reporter                      # Open Policy Reporter UI (prefers the configured gateway host; defaults to reporter.localhost)
 ```
 
-Global flags: `--config`, `--set key=value`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
+Global flags: `--config`, `--set key=value`, `--cluster <name>`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
 
 ## Platform Abstractions
 
@@ -493,12 +590,12 @@ This provisions:
 Shoulders comes with a pre-configured observability stack:
 
 - **[Grafana](https://grafana.com/oss/grafana/)** — Visualization and dashboards.
-- **[Prometheus](https://prometheus.io)** (via kube-prometheus-stack) — Metrics collection and alerting.
+- **[VictoriaMetrics](https://victoriametrics.com)** (via victoria-metrics-k8s-stack) — Metrics collection, storage, and alerting. The hub runs a single-node VMSingle; `prometheus.<domain>` remains the public, Prometheus-compatible endpoint, with vmagent scraping and vmalert evaluating rules.
 - **[Loki](https://grafana.com/oss/loki/)** — Log aggregation.
 - **[Tempo](https://grafana.com/oss/tempo/)** — Distributed tracing.
 - **[Grafana Alloy](https://grafana.com/oss/alloy/)** — Unified collector for logs, metrics, and traces.
 
-Use `platform.profile: small` for a low-footprint install: Prometheus retention is capped, the log/trace pipeline is omitted, and scanner/reporting add-ons are not installed. `medium` and `large` include the complete observability and reporting stack.
+Use `platform.profile: small` for a low-footprint install: VMSingle uses 24h retention on a 2Gi PVC with a 1.5GiB free-space floor (roughly a 512MiB data budget), the log/trace pipeline is omitted, and scanner/reporting add-ons are not installed. `medium` and `large` include the complete observability and reporting stack. VictoriaMetrics does not support retention below 24h, so `small` no longer uses the old 6h setting.
 
 ## Security & Compliance
 
@@ -508,7 +605,7 @@ Shoulders ships with a security and compliance stack that integrates with both P
 - **[Kyverno Policies](https://kyverno.io/policies/)** — Community best-practice policies (baseline pod security).
 - **[Trivy Operator](https://aquasecurity.github.io/trivy-operator/)** — Continuous vulnerability and misconfiguration scanning. Produces VulnerabilityReports integrated into Policy Reporter via its Trivy plugin.
 - **[Falco](https://falco.org)** — Runtime threat detection using eBPF. Falcosidekick forwards events as PolicyReport CRDs for Policy Reporter aggregation.
-- **[Policy Reporter](https://kyverno.github.io/policy-reporter/)** — Unified dashboard aggregating policy results from Kyverno, Trivy, and Falco. Includes Prometheus metrics and Grafana dashboards.
+- **[Policy Reporter](https://kyverno.github.io/policy-reporter/)** — Unified dashboard aggregating policy results from Kyverno, Trivy, and Falco. Includes Prometheus-compatible metrics and Grafana dashboards.
 
 Access the Policy Reporter UI:
 
@@ -546,7 +643,7 @@ shoulders up
 If needed, the Grafana admin password can also be retrieved manually:
 
 ```bash
-kubectl get secret -n observability kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+kubectl get secret -n observability victoria-metrics-k8s-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
 ## Developer Portal (Headlamp Plugin)

@@ -35,7 +35,8 @@
     "typescript": "6.0.3"
   },
   "devDependencies": {
-    "@kinvolk/headlamp-plugin": "^0.14.0"
+    "@kinvolk/headlamp-plugin": "^0.14.0",
+    "typescript": "6.0.3"
   },
   "dependencies": {
     "js-yaml": "^5.4.2"

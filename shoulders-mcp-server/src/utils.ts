@@ -101,7 +101,40 @@ export function resolveKubeconfigPath(): string {
   return path.join(os.homedir(), ".kube", "config");
 }
 
-export function loadKubeConfig(): { kubeConfig: KubeConfig; kubeconfigPath: string } {
+export const VIND_CONTEXT_PREFIX = "vcluster-docker_";
+
+/**
+ * The cluster this server should talk to, or null to use whatever context the
+ * kubeconfig already has selected.
+ *
+ * This is the server-side counterpart of the CLI's `--cluster` flag (D12). The
+ * previous behaviour was to always follow the kubeconfig's current-context,
+ * which silently addresses whichever cluster was last selected — fine with one
+ * cluster, wrong the moment there are several.
+ */
+export function resolveTargetCluster(): string | null {
+  const name = process.env.SHOULDERS_CLUSTER;
+  if (name && name.trim().length > 0) {
+    return name.trim();
+  }
+  return null;
+}
+
+/**
+ * Maps a cluster name to its kubeconfig context.
+ *
+ * An already-prefixed value is passed through so callers may use either form.
+ */
+export function contextNameForCluster(cluster: string): string {
+  return cluster.startsWith(VIND_CONTEXT_PREFIX)
+    ? cluster
+    : `${VIND_CONTEXT_PREFIX}${cluster}`;
+}
+
+export function loadKubeConfig(cluster?: string | null): {
+  kubeConfig: KubeConfig;
+  kubeconfigPath: string;
+} {
   const kubeconfigPath = resolveKubeconfigPath();
   const kubeConfig = new KubeConfig();
   if (existsSync(kubeconfigPath)) {
@@ -109,11 +142,34 @@ export function loadKubeConfig(): { kubeConfig: KubeConfig; kubeconfigPath: stri
   } else {
     kubeConfig.loadFromDefault();
   }
+
+  const target = cluster ?? resolveTargetCluster();
+  if (target) {
+    const contextName = contextNameForCluster(target);
+    const known = kubeConfig.getContexts().some((ctx) => ctx.name === contextName);
+    if (!known) {
+      // Fail loudly. Silently falling back to the kubeconfig's current-context
+      // would answer a question about one cluster with another cluster's data.
+      const available = kubeConfig
+        .getContexts()
+        .map((ctx) => ctx.name)
+        .filter((name) => name.startsWith(VIND_CONTEXT_PREFIX))
+        .map((name) => name.slice(VIND_CONTEXT_PREFIX.length));
+      throw new Error(
+        `no kubeconfig context "${contextName}" for cluster "${target}". ` +
+          (available.length > 0
+            ? `Clusters present in the kubeconfig: ${available.join(", ")}.`
+            : "No shoulders clusters are present in the kubeconfig yet.")
+      );
+    }
+    kubeConfig.setCurrentContext(contextName);
+  }
+
   return { kubeConfig, kubeconfigPath };
 }
 
-export function buildKubeClients() {
-  const { kubeConfig, kubeconfigPath } = loadKubeConfig();
+export function buildKubeClients(cluster?: string | null) {
+  const { kubeConfig, kubeconfigPath } = loadKubeConfig(cluster);
   return {
     kubeConfig,
     kubeconfigPath,
