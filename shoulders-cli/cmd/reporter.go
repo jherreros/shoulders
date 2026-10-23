@@ -16,10 +16,10 @@ var reporterCmd = &cobra.Command{
 	Short: "Open the Policy Reporter dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !targetCluster.ProfileSpec().PolicyReporter {
-			return fmt.Errorf("policy reporter is not installed when platform.profile is %s", currentConfig.Profile())
+			return fmt.Errorf("policy reporter is not installed when platform.profile is %s", targetCluster.Profile)
 		}
 
-		reporterURL := currentConfig.ReporterURL()
+		reporterURL := selectedReporterURL(targetCluster)
 		reporterHost := targetCluster.ReporterHost()
 
 		if isHostPortReachable(reporterHost, "80", 1500*time.Millisecond) {

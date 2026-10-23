@@ -2,14 +2,17 @@ package cmd
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"runtime"
 	"strings"
 	"time"
@@ -23,15 +26,12 @@ const (
 	githubRepo  = "shoulders"
 )
 
-type githubRelease struct {
-	TagName string        `json:"tag_name"`
-	Assets  []githubAsset `json:"assets"`
-}
+type archiveKind int
 
-type githubAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}
+const (
+	archiveTarGz archiveKind = iota
+	archiveZip
+)
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
@@ -43,45 +43,49 @@ var updateCmd = &cobra.Command{
 		}
 
 		spinner, _ := pterm.DefaultSpinner.Start("Checking for updates...")
-		release, err := fetchLatestRelease(cmd.Context())
+		tag, err := fetchLatestReleaseTag(cmd.Context())
 		if err != nil {
 			spinner.Fail("Failed to check for updates")
 			return fmt.Errorf("failed to fetch latest release: %w", err)
 		}
 
-		latest := strings.TrimPrefix(release.TagName, "v")
+		latest := strings.TrimPrefix(tag, "v")
 		current = strings.TrimPrefix(current, "v")
 
 		if latest == current {
-			spinner.Success(fmt.Sprintf("Already up to date (%s)", release.TagName))
+			spinner.Success(fmt.Sprintf("Already up to date (%s)", tag))
 			return nil
 		}
 
 		spinner.UpdateText(fmt.Sprintf("New version available: %s → %s", current, latest))
 
-		// GoReleaser produces archives like: shoulders_0.2.0_darwin_arm64.tar.gz
-		assetName := fmt.Sprintf("shoulders_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
-		var downloadURL string
-		for _, asset := range release.Assets {
-			if asset.Name == assetName {
-				downloadURL = asset.BrowserDownloadURL
-				break
-			}
+		assetName, binaryName, kind := updateAsset(latest, runtime.GOOS, runtime.GOARCH)
+		downloadBase := fmt.Sprintf("https://github.com/%s/%s/releases/download/%s", githubOwner, githubRepo, tag)
+
+		spinner.UpdateText(fmt.Sprintf("Downloading checksums for %s...", tag))
+		checksums, err := downloadAsset(cmd.Context(), downloadBase+"/checksums.txt")
+		if err != nil {
+			spinner.Fail("Checksum download failed")
+			return fmt.Errorf("failed to download checksums: %w", err)
 		}
-		if downloadURL == "" {
-			spinner.Fail("No binary found for your platform")
-			return fmt.Errorf("no release asset %q found for %s/%s", assetName, runtime.GOOS, runtime.GOARCH)
+		expected, err := checksumForAsset(checksums, assetName)
+		if err != nil {
+			spinner.Fail("Checksum missing")
+			return err
 		}
 
-		spinner.UpdateText(fmt.Sprintf("Downloading %s...", release.TagName))
-
-		archive, err := downloadAsset(cmd.Context(), downloadURL)
+		spinner.UpdateText(fmt.Sprintf("Downloading %s...", tag))
+		archive, err := downloadAsset(cmd.Context(), downloadBase+"/"+assetName)
 		if err != nil {
 			spinner.Fail("Download failed")
 			return fmt.Errorf("failed to download update: %w", err)
 		}
+		if err := verifyChecksum(assetName, archive, expected); err != nil {
+			spinner.Fail("Checksum verification failed")
+			return err
+		}
 
-		binary, err := extractBinaryFromTarGz(archive, "shoulders")
+		binary, err := extractBinary(archive, binaryName, kind)
 		if err != nil {
 			spinner.Fail("Extraction failed")
 			return fmt.Errorf("failed to extract binary from archive: %w", err)
@@ -98,35 +102,47 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 
-		spinner.Success(fmt.Sprintf("Updated to %s", release.TagName))
+		spinner.Success(fmt.Sprintf("Updated to %s", tag))
 		return nil
 	},
 }
 
-func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", githubOwner, githubRepo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+// updateAsset returns the release archive, the executable name inside it, and
+// the archive format. GoReleaser publishes .tar.gz everywhere except Windows,
+// where it publishes a .zip containing shoulders.exe.
+func updateAsset(version, goos, goarch string) (string, string, archiveKind) {
+	if goos == "windows" {
+		return fmt.Sprintf("shoulders_%s_%s_%s.zip", version, goos, goarch), "shoulders.exe", archiveZip
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	return fmt.Sprintf("shoulders_%s_%s_%s.tar.gz", version, goos, goarch), "shoulders", archiveTarGz
+}
+
+// fetchLatestReleaseTag follows GitHub's /releases/latest redirect instead of
+// calling the unauthenticated API. This avoids the 60 requests/hour per-IP
+// limit that makes both update and install fail on shared networks.
+func fetchLatestReleaseTag(ctx context.Context) (string, error) {
+	latestURL := fmt.Sprintf("https://github.com/%s/%s/releases/latest", githubOwner, githubRepo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, latestURL, nil)
+	if err != nil {
+		return "", err
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %s", resp.Status)
+		return "", fmt.Errorf("latest release request returned %s", resp.Status)
 	}
 
-	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, err
+	tag := pathpkg.Base(resp.Request.URL.Path)
+	if !strings.HasPrefix(tag, "v") || tag == "latest" {
+		return "", fmt.Errorf("unexpected latest release URL %q", resp.Request.URL.String())
 	}
-	return &release, nil
+	return tag, nil
 }
 
 func downloadAsset(ctx context.Context, url string) ([]byte, error) {
@@ -147,16 +163,67 @@ func downloadAsset(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func replaceExecutable(path string, newBinary []byte) error {
-	tmpPath := path + ".new"
+func checksumForAsset(checksums []byte, name string) (string, error) {
+	for _, line := range strings.Split(string(checksums), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		if strings.TrimPrefix(fields[1], "*") == name {
+			return strings.ToLower(fields[0]), nil
+		}
+	}
+	return "", fmt.Errorf("no checksum found for %q", name)
+}
+
+func verifyChecksum(name string, data []byte, expected string) error {
+	sum := sha256.Sum256(data)
+	actual := hex.EncodeToString(sum[:])
+	if !strings.EqualFold(strings.TrimSpace(expected), actual) {
+		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", name, expected, actual)
+	}
+	return nil
+}
+
+func replaceExecutable(execPath string, newBinary []byte) error {
+	tmpPath := execPath + ".new"
 	if err := os.WriteFile(tmpPath, newBinary, 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+
+	// Windows cannot replace a running executable in one rename. Move the old
+	// binary aside first, then install the new one. The .old file is removed
+	// on a best-effort basis because the running image may still be locked.
+	if runtime.GOOS == "windows" {
+		oldPath := execPath + ".old"
+		_ = os.Remove(oldPath)
+		if err := os.Rename(execPath, oldPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("cannot move current executable aside: %w", err)
+		}
+		if err := os.Rename(tmpPath, execPath); err != nil {
+			_ = os.Rename(oldPath, execPath)
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		_ = os.Remove(oldPath)
+		return nil
+	}
+
+	if err := os.Rename(tmpPath, execPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil
+}
+
+func extractBinary(archive []byte, binaryName string, kind archiveKind) ([]byte, error) {
+	switch kind {
+	case archiveZip:
+		return extractBinaryFromZip(archive, binaryName)
+	default:
+		return extractBinaryFromTarGz(archive, binaryName)
+	}
 }
 
 // extractBinaryFromTarGz finds a file named binaryName inside a gzipped tar archive.
@@ -178,6 +245,24 @@ func extractBinaryFromTarGz(archive []byte, binaryName string) ([]byte, error) {
 		}
 		if hdr.Name == binaryName || strings.HasSuffix(hdr.Name, "/"+binaryName) {
 			return io.ReadAll(tr)
+		}
+	}
+	return nil, fmt.Errorf("binary %q not found in archive", binaryName)
+}
+
+func extractBinaryFromZip(archive []byte, binaryName string) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, fmt.Errorf("zip open: %w", err)
+	}
+	for _, file := range zr.File {
+		if file.Name == binaryName || strings.HasSuffix(file.Name, "/"+binaryName) {
+			rc, err := file.Open()
+			if err != nil {
+				return nil, fmt.Errorf("zip open %q: %w", file.Name, err)
+			}
+			defer func() { _ = rc.Close() }()
+			return io.ReadAll(rc)
 		}
 	}
 	return nil, fmt.Errorf("binary %q not found in archive", binaryName)

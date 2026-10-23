@@ -20,7 +20,7 @@ var portalCmd = &cobra.Command{
 	Short: "Open the Shoulders portal (Headlamp UI)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		const portalPath = "/c/main/shoulders"
-		headlampOIDCURL := currentConfig.HeadlampURL()
+		headlampOIDCURL := selectedHeadlampURL(targetCluster)
 		headlampHost := targetCluster.HeadlampHost()
 
 		if isHostPortReachable(headlampHost, "80", 1500*time.Millisecond) {
