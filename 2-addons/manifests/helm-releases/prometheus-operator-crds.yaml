@@ -26,4 +26,4 @@ spec:
         kind: HelmRepository
         name: prometheus-community
         namespace: flux-system
-      version: "32.0.1"
+      version: "32.0.2"
