@@ -12,7 +12,7 @@ spec:
         kind: HelmRepository
         name: prometheus-community
         namespace: flux-system
-      version: "8.6.0"
+      version: "8.8.0"
   values:
     # A spoke runs this so the hub can see its workload objects. Nothing in the
     # spoke scrapes it — there is no Prometheus there — so the ServiceMonitor is

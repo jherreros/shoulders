@@ -26,7 +26,7 @@ spec:
         kind: HelmRepository
         name: grafana
         namespace: flux-system
-      version: "1.13.0"
+      version: "1.15.0"
   values:
     controller:
       type: deployment
