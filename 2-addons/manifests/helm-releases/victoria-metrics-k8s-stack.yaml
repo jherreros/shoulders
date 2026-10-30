@@ -26,7 +26,7 @@ spec:
         kind: HelmRepository
         name: victoriametrics
         namespace: flux-system
-      version: "0.96.0"
+      version: "0.97.0"
   values:
     global:
       clusterLabel: cluster
