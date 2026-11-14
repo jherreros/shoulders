@@ -12,7 +12,7 @@ spec:
         kind: HelmRepository
         name: cilium
         namespace: flux-system
-      version: "1.20.2"
+      version: "1.20.4"
   # Cilium is bootstrapped by the CLI (Flux cannot reconcile anything until a
   # CNI is running) and then adopted by this HelmRelease, which is named to match
   # the CLI's Helm release exactly. helm-controller takes over rather than
