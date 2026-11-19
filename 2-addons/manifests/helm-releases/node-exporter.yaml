@@ -22,7 +22,7 @@ spec:
         kind: HelmRepository
         name: prometheus-community
         namespace: flux-system
-      version: "4.59.0"
+      version: "4.60.1"
   values:
     fullnameOverride: node-exporter
     # The DaemonSet binds 9100 on each node, and Alloy scrapes the node IPs
