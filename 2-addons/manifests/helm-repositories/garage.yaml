@@ -8,6 +8,6 @@ spec:
   timeout: 5m
   url: https://git.deuxfleurs.fr/Deuxfleurs/garage.git
   ref:
-    commit: adaf85c9a5f42e8e7eb85a4f6d8757ee1f13e9db
+    commit: 984cb2afe7b40e4818c727a2d1b0b017b7dadff1
   sparseCheckout:
     - script/helm/garage
